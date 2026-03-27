@@ -27,8 +27,8 @@ Responsibilities:
 Evaluates pull request changes for security issues.
 
 This combines:
-- deterministic checks
-- contextual reasoning
+- LLM-led contextual review
+- narrow deterministic guardrails where they improve reviewer quality
 
 The analysis engine is not expected to replace traditional scanners.
 It is intended to provide focused review value in the PR workflow.
@@ -36,18 +36,22 @@ It is intended to provide focused review value in the PR workflow.
 ---
 
 ### 3. Deterministic Checks
-Used where high-confidence pattern matching or rule logic is appropriate.
+Used only where small, high-confidence guardrails reduce reviewer noise or
+catch obvious issues in changed code.
 
 Examples:
 - obvious insecure configuration
 - simple auth/authz anti-patterns in known frameworks
 - dangerous input handling patterns
-- secrets exposure indicators
-- dependency risk signals
+
+These checks are intentionally narrow in Phase 1.
+They support the reviewer but do not define the product.
 
 ---
 
 ### 4. Reasoning Layer
+This is the primary Phase 1 analysis path.
+
 Used for:
 - contextual interpretation
 - summarisation
@@ -55,7 +59,8 @@ Used for:
 - ambiguous logic review
 - prioritisation support
 
-This layer should support the reviewer, not define the entire truth of the system.
+This layer should drive the reviewer experience in Phase 1 while staying
+grounded in changed-code review rather than broad scanner-style coverage.
 
 ---
 
@@ -121,8 +126,8 @@ flowchart LR
     B --> C[GitHub Action Reviewer]
 
     C --> D[Analysis Engine]
-    D --> E[Deterministic Checks]
-    D --> F[Reasoning Layer]
+    D --> E[Narrow Guardrails]
+    D --> F[LLM Review Layer]
 
     E --> G[Structured Findings JSON]
     F --> G
