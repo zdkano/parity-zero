@@ -69,20 +69,25 @@ Every parity-zero scan must emit structured JSON findings.
 
 ---
 
-## ADR-004: Use deterministic checks plus reasoning
+## ADR-004: Use LLM-led reasoning with narrow deterministic guardrails
 
 **Status:** Accepted  
 **Date:** 2026-03-27
 
 ### Decision
-parity-zero will combine deterministic checks with LLM-based reasoning.
+parity-zero will use LLM-based reasoning as the primary Phase 1 reviewer path,
+with deterministic checks kept narrow and supplemental.
 
 ### Rationale
-- Deterministic checks provide precision and repeatability
-- Reasoning helps with context, summarisation, and ambiguous logic review
-- Relying only on LLM intuition would weaken trust and make validation harder
+- Phase 1 should prove the value of an AI reviewer, not drift into building
+  another broad scanner
+- LLM reasoning is the main source of contextual review value in pull requests
+- Narrow deterministic guardrails can still add precision where the signal is
+  obvious and low-noise
 
 ### Consequences
+- The LLM reviewer remains the MVP in Phase 1
+- Deterministic checks should stay small, high-signal, and secondary
 - Findings should distinguish high-confidence logic from contextual interpretation where possible
 - Design must avoid presenting weak inference as certainty
 

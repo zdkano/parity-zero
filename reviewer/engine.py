@@ -1,15 +1,16 @@
 """Analysis engine for parity-zero.
 
-Coordinates the two analysis strategies described in ADR-004:
+Coordinates the Phase 1 reviewer flow described in ADR-004:
 
-  1. Deterministic checks  — high-confidence pattern matching (checks.py).
-  2. Reasoning layer        — LLM-based contextual analysis (reasoning.py).
+  1. Reasoning layer        — LLM-led contextual review (reasoning.py).
+  2. Deterministic checks  — narrow supporting guardrails (checks.py).
 
 The engine merges results from both strategies, deduplicates, and returns
 a flat list of Finding objects.
 
-Phase 1: both subsystems are stubs.  The engine wiring is in place so that
-real detection logic can be added incrementally without restructuring.
+Phase 1 keeps the LLM reviewer as the MVP.  Deterministic checks remain
+supporting placeholders so parity-zero stays focused on AI review rather
+than broad scanner-style coverage.
 """
 
 from __future__ import annotations

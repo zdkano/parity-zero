@@ -55,9 +55,9 @@ Do not force developers into a separate product for basic use.
 Every scan must emit machine-readable findings.
 The JSON output is a core system contract, not an implementation detail.
 
-### 4. Rules plus reasoning
-Use deterministic checks for precision and LLM reasoning for context, explanation, and prioritisation.
-Do not rely on the LLM alone.
+### 4. LLM-led review with narrow guardrails
+Use LLM reasoning as the core Phase 1 reviewer experience.
+Only add deterministic checks where they provide a small, high-confidence guardrail without pushing the product toward broad scanner behaviour.
 
 ### 5. Low-noise findings beat broad noisy coverage
 A smaller number of high-quality findings is better than a large volume of weak or repetitive output.

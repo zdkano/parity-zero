@@ -14,14 +14,18 @@ See `.squad/context/product.md` for full product context and `.squad/context/arc
 
 **Phase 1 — Reviewer wedge.** See `.squad/context/roadmap.md`.
 
+Phase 1 keeps the LLM reviewer as the MVP. parity-zero is being built as an
+AI reviewer for pull requests, not as a replacement for SAST, SCA, or other
+broader scanning tooling.
+
 ## Repository Structure
 
 ```
 reviewer/          GitHub Action reviewer (primary product surface)
   action.py        Entry point — orchestrates the review flow
-  engine.py        Analysis engine — coordinates checks + reasoning
-  checks.py        Deterministic check stubs
-  reasoning.py     LLM reasoning layer stub
+  engine.py        Analysis engine — coordinates LLM review + guardrails
+  checks.py        Narrow deterministic guardrail stubs
+  reasoning.py     LLM review layer stub
   formatter.py     Markdown PR summary formatter
 
 api/               FastAPI ingestion stub
