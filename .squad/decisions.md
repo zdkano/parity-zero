@@ -166,3 +166,25 @@ The Phase 1 scaffold uses three top-level Python packages: `reviewer/`, `api/`, 
 - Adding new reviewer checks only touches `reviewer/`
 - Schema changes are visible and central — they naturally trigger review
 - The API can evolve independently toward Phase 2 persistence without affecting the reviewer
+
+---
+
+## ADR-009: Decision enum and ScanMeta base model in findings contract
+
+**Status:** Accepted  
+**Date:** 2026-03-27
+
+### Decision
+The findings contract adds a `Decision` enum (`block`, `warn`, `pass`) and a `ScanMeta` base model that `ScanResult` inherits from.
+
+### Rationale
+- A scan-level decision field is needed for the reviewer to express an overall assessment, separate from individual finding severities
+- Extracting scan metadata into a dedicated `ScanMeta` base class makes the metadata contract explicit and independently testable
+- Using inheritance preserves the existing flat JSON shape — no breaking change to the ingestion contract
+- The `decision` field defaults to `pass`, so existing callers and payloads without it remain valid
+
+### Consequences
+- `ScanResult` now inherits from `ScanMeta` instead of `BaseModel` directly
+- All ScanResult payloads include a `decision` field (defaulting to `pass`)
+- Consumers can validate metadata independently via `ScanMeta`
+- The ingestion API may need to handle the new `decision` field if present in payloads
