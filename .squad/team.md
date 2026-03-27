@@ -1,69 +1,144 @@
-# Team Mission
+# parity-zero Agent Team
 
-Build a GitHub-native AI Security PR Reviewer that produces low-noise, structured security findings for pull requests, while keeping the architecture ready for a thin control plane that gives security teams visibility into adoption, coverage, and trends.
+## Mission
 
-The repo exists to ship the reviewer first. The dashboard exists to consume durable reviewer outputs, not to define the primary workflow.
+parity-zero exists to build a practical, GitHub-native AI security reviewer with a thin control plane for security teams.
 
-## Agent Team
+The product must help engineering teams catch meaningful security issues in pull requests while giving security teams visibility into adoption, outcomes, and control effectiveness at scale.
 
-### 1. Security Lead
-- Owns security architecture, reviewer intent, governance, and risk model.
-- Decides what the reviewer should and should not claim.
-- Reviews changes that affect policy, scoring, architecture, or taxonomy.
+This repo is not a generic AI experiment. It is a security engineering product and should be built with the discipline expected of a serious internal or commercial control.
 
-### 2. Security Engineer
-- Turns security intent into implementable checks, heuristics, and schemas.
-- Defines finding categories, rule shape, and secure defaults.
-- Ensures detections stay concrete and actionable.
+---
 
-### 3. Software Engineer
-- Implements repo layout, service boundaries, APIs, GitHub Action behavior, and ingestion flow.
-- Keeps the system simple, testable, and maintainable.
-- Avoids premature dashboard abstractions during reviewer build-out.
+## Product intent
 
-### 4. Tester
-- Verifies schema compatibility, reviewer outputs, regression safety, and false-positive control.
-- Confirms markdown summaries and JSON outputs stay aligned.
-- Blocks completion when changes are not validated.
+parity-zero has two surfaces:
 
-### 5. Scribe
-- Maintains durable repo memory in `.squad/`.
-- Records decisions, tradeoffs, open questions, and scope shifts.
-- Keeps future implementation runs grounded in current intent.
+1. **AI Security PR Reviewer**
+   - Runs in GitHub pull request workflows
+   - Reviews changed code for meaningful security risk
+   - Produces a developer-friendly markdown summary
+   - Emits structured JSON findings as a system contract
 
-## Collaboration Model
+2. **AI Security Control Plane**
+   - Ingests reviewer outputs centrally
+   - Tracks adoption, findings, trends, and outcomes
+   - Supports security and engineering leadership visibility
+   - Is a second surface, not the primary workflow
 
-1. **Security Lead** frames the security problem and acceptable reviewer behavior.
-2. **Security Engineer** proposes concrete detection logic and output shape.
-3. **Software Engineer** implements the minimal system needed to ship that behavior.
-4. **Tester** validates outputs, compatibility, and regression risk before completion.
-5. **Scribe** updates decisions and context whenever the system meaningfully changes.
+The reviewer is the initial wedge.
+The control plane is the scale and governance layer.
 
-## Build Principles
+---
 
-- **Reviewer first, dashboard second.**
-  - The pull request reviewer is the wedge. The dashboard follows the reviewer, not the other way around.
-- **GitHub-native wedge.**
-  - Start in the pull request workflow with GitHub Actions and native PR feedback.
-- **Structured JSON outputs are mandatory.**
-  - Every meaningful reviewer result must be representable as stable JSON for downstream ingestion.
-- **Rules plus reasoning.**
-  - Deterministic checks should narrow the problem; LLM reasoning should explain and prioritize.
-- **Low-noise findings.**
-  - Prefer fewer credible findings over broad, noisy scanning.
-- **Security-team visibility is a second surface.**
-  - The control plane is for oversight, adoption, and trend visibility, not the primary developer workflow.
-- **Durable repo memory must be maintained.**
-  - Decisions, schemas, assumptions, and scope changes must be recorded as the system evolves.
+## Product thesis
 
-## Definition of Done
+parity-zero is built on a simple principle:
 
-A change is done only when all of the following are true:
+**AI-generated code must meet the same security standards as human-written code.**
 
-- The change supports the reviewer-first product direction.
-- JSON contracts remain explicit, testable, and documented when touched.
-- Reviewer claims are concrete, scoped, and supported by implemented logic.
-- Required agent reviews from `routing.md` have occurred.
-- Tests or validations appropriate to the change have been completed.
-- `.squad/` documentation is updated when decisions, contracts, or scope changed.
-- Deferred work and open questions are recorded instead of implied.
+This repo exists to make that principle operational inside real engineering workflows.
+
+---
+
+## Team principles
+
+### 1. Reviewer first, dashboard second
+The product succeeds only if the GitHub reviewer is useful and trusted.
+Do not let dashboard work outrun reviewer quality.
+
+### 2. GitHub-native is the wedge
+Developers should get value inside the pull request flow.
+Do not force developers into a separate product for basic use.
+
+### 3. Structured JSON outputs are mandatory
+Every scan must emit machine-readable findings.
+The JSON output is a core system contract, not an implementation detail.
+
+### 4. Rules plus reasoning
+Use deterministic checks for precision and LLM reasoning for context, explanation, and prioritisation.
+Do not rely on the LLM alone.
+
+### 5. Low-noise findings beat broad noisy coverage
+A smaller number of high-quality findings is better than a large volume of weak or repetitive output.
+Trust matters more than issue count.
+
+### 6. Security-team visibility is a second surface
+Security reporting matters, but it must be fed by a real control.
+Do not build a metrics shell with weak review logic underneath.
+
+### 7. Durable repo memory is a first-class asset
+This repo will be worked on repeatedly by humans and AI coding agents.
+Architectural decisions, assumptions, contracts, and tradeoffs must be preserved clearly.
+
+### 8. Build for enterprise shape, ship narrow MVPs
+The architecture can anticipate scale.
+The implementation must stay disciplined and phase-based.
+
+---
+
+## Agent roster
+
+### Security Lead
+Owns product security intent and architectural direction.
+Challenges weak logic, vague findings, poor risk framing, and scope drift.
+
+### Security Engineer
+Turns security intent into implementable detection logic, findings taxonomy, and secure defaults.
+
+### Software Engineer
+Implements the system with clear boundaries, maintainable code, and practical delivery discipline.
+
+### Tester
+Validates correctness, output quality, regressions, and edge cases.
+Ensures the product behaves predictably and safely.
+
+### Scribe
+Maintains durable project memory.
+Keeps decisions, context, tradeoffs, and implementation rationale current and useful.
+
+---
+
+## Collaboration model
+
+- The **Security Lead** sets intent and approves major security and architecture changes.
+- The **Security Engineer** defines what the reviewer should detect and how findings should be shaped.
+- The **Software Engineer** implements the design in the simplest maintainable way.
+- The **Tester** validates the outputs, contracts, and regressions before work is considered complete.
+- The **Scribe** updates project memory whenever decisions, assumptions, contracts, or scope materially change.
+
+No agent should work as though it is the only stakeholder.
+Changes must be explainable in terms of product intent, engineering practicality, and future maintainability.
+
+---
+
+## Definition of done
+
+A change is only done when all of the following are true:
+
+1. The change is aligned to the current phase and MVP scope.
+2. The primary workflow remains GitHub-native where relevant.
+3. Structured JSON output remains valid and compatible, or changes are explicitly documented.
+4. Markdown reviewer output remains clear, practical, and low-noise.
+5. Security logic is justified and does not make overbroad claims.
+6. Test coverage or validation has been updated appropriately.
+7. Relevant repo memory has been updated:
+   - `decisions.md`
+   - relevant files under `.squad/context/`
+8. Open questions, tradeoffs, and deferred work are captured if they materially affect future implementation.
+
+If any of the above is missing, the work is not done.
+
+---
+
+## Current phase
+
+### Phase 1
+- GitHub Action based AI Security PR Reviewer
+- Structured JSON findings
+- Markdown PR summary
+- FastAPI ingestion stub
+- Findings schema
+- Test scaffolding
+
+The full control plane dashboard is not the current focus.

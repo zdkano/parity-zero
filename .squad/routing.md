@@ -1,73 +1,158 @@
-# Work Routing
+# parity-zero Routing Rules
 
-Use the smallest lead agent that can responsibly complete the work. Pull in additional agents when a change affects product intent, contracts, or verification.
+## Purpose
 
-## Lead Agent by Work Type
+This file defines which agent should lead different kinds of work, when escalation is required, and when supporting review is mandatory.
 
-### Security Lead leads when work changes:
-- security architecture
-- reviewer scope or boundaries
-- governance model
-- policy behavior
-- risk scoring principles
-- what qualifies as a security finding
+The goal is to stop role confusion, prevent weak changes from slipping through, and maintain design discipline as the repo evolves.
 
-### Security Engineer leads when work changes:
-- findings taxonomy
+---
+
+## Primary routing
+
+### Route to Security Lead when the work involves:
+- security architecture changes
+- reviewer scope changes
+- risk scoring model changes
+- policy logic changes
+- trust model changes
+- findings taxonomy changes
+- changes that affect product positioning or control boundaries
+- changes that may weaken enforcement, findings quality, or reviewer trust
+
+### Route to Security Engineer when the work involves:
 - detection logic
 - rule design
-- security heuristics
+- finding categories
+- severity mapping
+- confidence mapping
+- reviewer heuristics
 - secure defaults
-- schema fields that originate from reviewer analysis
+- AI-specific security review patterns
 
-### Software Engineer leads when work changes:
-- repo layout
-- service boundaries
+### Route to Software Engineer when the work involves:
+- repository layout
+- implementation details
 - API contracts
-- GitHub Action implementation
-- ingestion pipeline behavior
-- operational plumbing for later dashboard support
+- GitHub Action plumbing
+- ingestion pipeline implementation
+- storage model implementation
+- service boundaries
+- internal refactoring
+- control plane plumbing in later phases
 
-### Tester leads when work changes:
-- test strategy
-- validation logic
-- regression coverage
-- false-positive controls
-- output compatibility checks
+### Route to Tester when the work involves:
+- output validation
+- regression testing
+- schema validation
+- edge case coverage
+- false positive analysis
+- end-to-end flow validation
+- contract verification between reviewer and ingestion API
 
-### Scribe leads when work changes:
-- repo memory
-- architecture documentation
-- ADRs
-- roadmap state
-- scope framing
-- implementation rationale
+### Route to Scribe when the work involves:
+- architecture decisions
+- scope changes
+- schema or contract changes
+- roadmap changes
+- changed assumptions
+- tradeoff capture
+- recording deferred work
+- updating durable product or architecture context
 
-## Escalation Rules
+---
 
-- Escalate to **Security Lead** when a proposed change could expand reviewer authority, alter security claims, or trade precision for broader coverage.
-- Escalate to **Security Engineer** when implementation details affect detection fidelity, taxonomy boundaries, or secure defaults.
-- Escalate to **Software Engineer** when a design choice adds service boundaries, workflow complexity, or integration coupling.
-- Escalate to **Tester** when outputs, schemas, compatibility, or regressions are in question.
-- Escalate to **Scribe** whenever the repo’s durable memory may become stale or misleading.
-
-## Mandatory Reviews
+## Mandatory review rules
 
 ### Security Lead review is required for:
 - findings taxonomy changes
-- policy logic
-- risk scoring logic
+- policy logic changes
+- risk scoring logic changes
 - architecture changes
+- control boundary changes
+- changes that alter what the reviewer claims to detect or enforce
 
-### Tester review is required before completing:
+### Tester review is required before completion of:
 - reviewer output changes
-- schema changes
+- JSON schema changes
 - PR comment format changes
-- dashboard metric changes
+- ingestion payload changes
+- dashboard metric definitions
+- finding severity or confidence semantics
 
 ### Scribe involvement is required whenever:
 - architecture decisions are made
 - scope changes materially
 - schemas or contracts change
 - roadmap phase boundaries shift
-- assumptions are invalidated
+- earlier assumptions are invalidated
+- a tradeoff is accepted that future contributors need to understand
+
+---
+
+## Escalation rules
+
+Escalate to Security Lead immediately if:
+- a finding may be misleading or overstated
+- a change could create false confidence in the reviewer
+- a change blurs the boundary between deterministic checks and reasoning
+- the product starts drifting toward dashboard-first development
+- a proposed feature expands beyond the current phase without a clear reason
+
+Escalate to Tester if:
+- a contract is changing
+- there is uncertainty about backward compatibility
+- output quality may regress
+- a new check could create noisy or unstable findings
+
+Escalate to Scribe if:
+- you made a non-trivial decision
+- you rejected an alternative that may come up again later
+- you changed an assumption that appears in docs or roadmap
+- the current repo context no longer reflects reality
+
+---
+
+## Phase discipline
+
+### Phase 1 routing bias
+During phase 1, prefer work that directly supports:
+- GitHub Action reviewer execution
+- structured JSON findings
+- markdown PR summaries
+- ingestion stub
+- basic test scaffolding
+
+Deprioritise:
+- large dashboard features
+- policy administration UI
+- enterprise governance workflows
+- advanced org management
+- broad integrations beyond GitHub
+
+If a proposed change does not strengthen the reviewer wedge or its immediate data contract, challenge it.
+
+---
+
+## Conflict resolution
+
+If agents disagree:
+1. Re-anchor on current product phase.
+2. Re-check `team.md` principles.
+3. Prefer the simpler design unless there is a strong security reason not to.
+4. Prefer preserving the JSON contract over short-term implementation convenience.
+5. Record the decision in `decisions.md` if the disagreement exposed a meaningful tradeoff.
+
+---
+
+## Anti-patterns
+
+Do not route work in ways that create these failures:
+
+- Security Lead acting as sole implementer
+- Software Engineer changing risk semantics without security review
+- Tester being added only at the end after outputs are already assumed correct
+- Scribe being skipped because “it was obvious”
+- Dashboard work being treated as equal priority to reviewer trust in phase 1
+
+These are failure modes, not shortcuts.
