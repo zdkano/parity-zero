@@ -1,11 +1,12 @@
 """Tests for the parity-zero findings schema (core JSON contract).
 
 These tests validate that:
-  - Finding and ScanResult models enforce required fields
+  - Finding, ScanMeta, and ScanResult models enforce required fields
   - Enum values map to the findings taxonomy
   - Serialisation round-trips produce valid JSON
   - summary_counts works correctly
   - Invalid data is rejected
+  - JSON shape is stable for ingestion use
 """
 
 from datetime import datetime, timezone
@@ -16,7 +17,9 @@ from pydantic import ValidationError
 from schemas.findings import (
     Category,
     Confidence,
+    Decision,
     Finding,
+    ScanMeta,
     ScanResult,
     Severity,
 )
@@ -75,6 +78,56 @@ class TestCategory:
     def test_category_is_string_enum(self):
         assert Category.SECRETS == "secrets"
 
+    def test_category_count_matches_mvp(self):
+        assert len(Category) == 6
+
+
+# ---------------------------------------------------------------------------
+# Severity enum tests
+# ---------------------------------------------------------------------------
+
+class TestSeverity:
+    def test_all_severity_values(self):
+        assert {s.value for s in Severity} == {"high", "medium", "low"}
+
+    def test_severity_is_string_enum(self):
+        assert Severity.HIGH == "high"
+
+    def test_severity_count(self):
+        assert len(Severity) == 3
+
+
+# ---------------------------------------------------------------------------
+# Confidence enum tests
+# ---------------------------------------------------------------------------
+
+class TestConfidence:
+    def test_all_confidence_values(self):
+        assert {c.value for c in Confidence} == {"high", "medium", "low"}
+
+    def test_confidence_is_string_enum(self):
+        assert Confidence.LOW == "low"
+
+    def test_confidence_count(self):
+        assert len(Confidence) == 3
+
+
+# ---------------------------------------------------------------------------
+# Decision enum tests
+# ---------------------------------------------------------------------------
+
+class TestDecision:
+    def test_all_decision_values(self):
+        assert {d.value for d in Decision} == {"block", "warn", "pass"}
+
+    def test_decision_is_string_enum(self):
+        assert Decision.BLOCK == "block"
+        assert Decision.WARN == "warn"
+        assert Decision.PASS == "pass"
+
+    def test_decision_count(self):
+        assert len(Decision) == 3
+
 
 # ---------------------------------------------------------------------------
 # Finding model tests
@@ -126,9 +179,84 @@ class TestFinding:
         with pytest.raises(ValidationError):
             _make_finding(category="xss")
 
+    def test_invalid_confidence_rejected(self):
+        with pytest.raises(ValidationError):
+            _make_finding(confidence="absolute")
+
     def test_start_line_must_be_positive(self):
         with pytest.raises(ValidationError):
             _make_finding(start_line=0)
+
+    def test_finding_json_shape(self):
+        """Finding JSON keys must match the expected contract shape."""
+        f = _make_finding()
+        data = f.model_dump()
+        expected_keys = {
+            "id",
+            "category",
+            "severity",
+            "confidence",
+            "title",
+            "description",
+            "file",
+            "start_line",
+            "end_line",
+            "recommendation",
+        }
+        assert set(data.keys()) == expected_keys
+
+
+# ---------------------------------------------------------------------------
+# ScanMeta model tests
+# ---------------------------------------------------------------------------
+
+class TestScanMeta:
+    def test_valid_scan_meta(self):
+        meta = ScanMeta(
+            repo="acme/webapp",
+            pr_number=10,
+            commit_sha="abc1234",
+            ref="main",
+        )
+        assert meta.repo == "acme/webapp"
+        assert meta.pr_number == 10
+
+    def test_scan_meta_gets_auto_scan_id(self):
+        meta = ScanMeta(
+            repo="acme/webapp",
+            pr_number=1,
+            commit_sha="abc1234",
+            ref="main",
+        )
+        assert meta.scan_id is not None
+        assert len(meta.scan_id) == 32
+
+    def test_scan_meta_gets_timestamp(self):
+        meta = ScanMeta(
+            repo="acme/webapp",
+            pr_number=1,
+            commit_sha="abc1234",
+            ref="main",
+        )
+        assert isinstance(meta.timestamp, datetime)
+
+    def test_scan_meta_repo_required(self):
+        with pytest.raises(ValidationError):
+            ScanMeta(pr_number=1, commit_sha="abc1234", ref="main")
+
+    def test_scan_meta_ref_required(self):
+        with pytest.raises(ValidationError):
+            ScanMeta(repo="acme/webapp", pr_number=1, commit_sha="abc1234")
+
+    def test_scan_meta_json_shape(self):
+        meta = ScanMeta(
+            repo="acme/webapp",
+            pr_number=1,
+            commit_sha="abc1234",
+            ref="main",
+        )
+        expected_keys = {"scan_id", "repo", "pr_number", "commit_sha", "ref", "timestamp"}
+        assert set(meta.model_dump().keys()) == expected_keys
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +291,18 @@ class TestScanResult:
         with pytest.raises(ValidationError):
             _make_scan_result(commit_sha="abc")
 
+    def test_decision_defaults_to_pass(self):
+        sr = _make_scan_result()
+        assert sr.decision == Decision.PASS
+
+    def test_decision_can_be_set(self):
+        sr = _make_scan_result(decision=Decision.BLOCK)
+        assert sr.decision == Decision.BLOCK
+
+    def test_invalid_decision_rejected(self):
+        with pytest.raises(ValidationError):
+            _make_scan_result(decision="reject")
+
     def test_summary_counts(self):
         findings = [
             _make_finding(severity=Severity.HIGH),
@@ -182,5 +322,67 @@ class TestScanResult:
         json_str = sr.model_dump_json()
         restored = ScanResult.model_validate_json(json_str)
         assert restored.scan_id == sr.scan_id
+        assert restored.decision == sr.decision
         assert len(restored.findings) == len(sr.findings)
         assert restored.findings[0].title == sr.findings[0].title
+
+    def test_scan_result_json_shape(self):
+        """ScanResult JSON keys must match the expected contract shape for ingestion."""
+        sr = _make_scan_result()
+        data = sr.model_dump()
+        expected_keys = {
+            "scan_id",
+            "repo",
+            "pr_number",
+            "commit_sha",
+            "ref",
+            "timestamp",
+            "decision",
+            "findings",
+        }
+        assert set(data.keys()) == expected_keys
+
+    def test_scan_result_inherits_scan_meta(self):
+        assert issubclass(ScanResult, ScanMeta)
+
+    def test_scan_result_decision_in_json_round_trip(self):
+        sr = _make_scan_result(decision=Decision.WARN)
+        json_str = sr.model_dump_json()
+        restored = ScanResult.model_validate_json(json_str)
+        assert restored.decision == Decision.WARN
+
+    def test_ingestion_shape_stability(self):
+        """Full payload shape check — validates the nested structure is stable
+        for downstream ingestion consumers."""
+        sr = _make_scan_result(decision=Decision.WARN)
+        payload = sr.model_dump(mode="json")
+
+        # Top-level keys
+        assert "scan_id" in payload
+        assert "repo" in payload
+        assert "pr_number" in payload
+        assert "commit_sha" in payload
+        assert "ref" in payload
+        assert "timestamp" in payload
+        assert "decision" in payload
+        assert "findings" in payload
+
+        # Decision is serialised as its string value
+        assert payload["decision"] == "warn"
+
+        # Findings are serialised as dicts with expected keys
+        assert len(payload["findings"]) == 1
+        finding_keys = set(payload["findings"][0].keys())
+        expected_finding_keys = {
+            "id",
+            "category",
+            "severity",
+            "confidence",
+            "title",
+            "description",
+            "file",
+            "start_line",
+            "end_line",
+            "recommendation",
+        }
+        assert finding_keys == expected_finding_keys

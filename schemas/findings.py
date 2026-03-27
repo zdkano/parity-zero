@@ -51,6 +51,18 @@ class Confidence(str, enum.Enum):
     LOW = "low"
 
 
+class Decision(str, enum.Enum):
+    """Scan-level reviewer decision.
+
+    Represents the reviewer's overall assessment of the pull request
+    based on the aggregated findings.
+    """
+
+    BLOCK = "block"
+    WARN = "warn"
+    PASS = "pass"
+
+
 class Finding(BaseModel):
     """A single security finding produced by the reviewer.
 
@@ -72,12 +84,12 @@ class Finding(BaseModel):
     )
 
 
-class ScanResult(BaseModel):
-    """Top-level output of a single parity-zero review run.
+class ScanMeta(BaseModel):
+    """Scan-level metadata for a parity-zero review run.
 
-    Wraps zero or more findings with metadata about the scan context.
-    This is the payload sent to the ingestion API and the basis for the
-    markdown PR summary.
+    Captures the context of the scan — which repo, PR, commit, and when
+    the scan occurred.  ScanResult inherits from this model so the
+    metadata fields remain flat in the JSON contract.
     """
 
     scan_id: str = Field(default_factory=lambda: uuid4().hex)
@@ -86,6 +98,20 @@ class ScanResult(BaseModel):
     commit_sha: str = Field(..., min_length=7, max_length=40)
     ref: str = Field(..., description="Head branch ref of the pull request.")
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ScanResult(ScanMeta):
+    """Top-level output of a single parity-zero review run.
+
+    Wraps zero or more findings with metadata about the scan context.
+    This is the payload sent to the ingestion API and the basis for the
+    markdown PR summary.
+    """
+
+    decision: Decision = Field(
+        default=Decision.PASS,
+        description="Reviewer's overall assessment of the pull request.",
+    )
     findings: list[Finding] = Field(default_factory=list)
 
     @property
