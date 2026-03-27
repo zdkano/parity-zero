@@ -1,0 +1,32 @@
+name: "parity-zero Security Reviewer"
+description: "AI-powered security review for pull requests"
+author: "parity-zero"
+
+inputs:
+  github_token:
+    description: "GitHub token for API access (PR comments, changed files)"
+    required: true
+  api_endpoint:
+    description: "Optional central ingestion API URL"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      shell: bash
+      run: pip install -r ${{ github.action_path }}/requirements.txt
+
+    - name: Run parity-zero reviewer
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        PARITY_ZERO_API: ${{ inputs.api_endpoint }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: python -m reviewer.action

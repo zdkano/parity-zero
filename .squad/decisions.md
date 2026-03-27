@@ -144,3 +144,25 @@ Durable repo memory will be maintained deliberately through `.squad/` context fi
 - The Scribe is a core agent, not an optional one
 - Documentation must stay concise and decision-oriented
 - Changes that alter assumptions or contracts must update repo memory
+
+---
+
+## ADR-008: Phase 1 repository layout uses three top-level Python packages
+
+**Status:** Accepted  
+**Date:** 2026-03-27
+
+### Decision
+The Phase 1 scaffold uses three top-level Python packages: `reviewer/`, `api/`, and `schemas/`, plus a `tests/` directory.
+
+### Rationale
+- `schemas/` is the shared contract layer — both `reviewer/` and `api/` import from it, enforcing ADR-003
+- `reviewer/` is a standalone package that can run inside a GitHub Action without the API
+- `api/` is a thin FastAPI stub that depends only on `schemas/` — it does not import reviewer internals
+- This layout keeps the reviewer and ingestion API loosely coupled via the JSON contract
+- `tests/` mirrors the package structure with `test_schemas.py`, `test_reviewer.py`, and `test_api.py`
+
+### Consequences
+- Adding new reviewer checks only touches `reviewer/`
+- Schema changes are visible and central — they naturally trigger review
+- The API can evolve independently toward Phase 2 persistence without affecting the reviewer

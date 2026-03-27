@@ -1,0 +1,27 @@
+# parity-zero PR Review Workflow
+#
+# Runs the AI security reviewer on every pull request.
+# See action.yml for the composite action definition.
+
+name: parity-zero Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: Security Review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run parity-zero reviewer
+        uses: ./
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
