@@ -55,6 +55,8 @@ Receive and persist a scan result from the reviewer.
 
 **Request body:** A valid `ScanResult` JSON payload. See [schemas/findings.py](../schemas/findings.py) for the full schema.
 
+The endpoint also accepts optional **run summary metadata** alongside the ScanResult fields. These extra fields are not part of the ScanResult contract but are persisted for debugging and history. See ADR-036.
+
 **Required fields:**
 
 | Field | Type | Description |
@@ -73,6 +75,22 @@ Receive and persist a scan result from the reviewer.
 | `decision` | string | `"pass"` | `"pass"`, `"warn"`, or `"block"` |
 | `risk_score` | integer (0–100) | `0` | Aggregate risk score |
 | `timestamp` | ISO 8601 datetime | Auto-generated | Scan timestamp |
+
+**Run summary metadata fields (optional, persisted for debugging/history — ADR-036):**
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `provider_name` | string | `""` | Reasoning provider used (e.g. `"github-models"`, `"anthropic"`) |
+| `provider_invoked` | boolean | `false` | Whether the reasoning provider was actually invoked |
+| `provider_gate_decision` | string | `""` | Gate outcome: `"invoked"`, `"skipped"`, `"disabled"`, `"unavailable"` |
+| `concerns_count` | integer | `0` | Number of ReviewConcern instances generated |
+| `observations_count` | integer | `0` | Number of ReviewObservation instances generated |
+| `provider_notes_count` | integer | `0` | Raw candidate notes returned by provider |
+| `provider_notes_suppressed_count` | integer | `0` | Provider notes suppressed by overlap filtering |
+| `changed_files_count` | integer | `0` | Total changed files discovered in the PR |
+| `skipped_files_count` | integer | `0` | Changed files whose content could not be loaded (deleted, binary, too large, unreadable) |
+
+These fields are **not part of the ScanResult JSON contract**. They are accepted alongside the ScanResult fields and persisted in the `runs` table for operational visibility. The reviewer action populates them automatically when sending results to the backend.
 
 **Finding fields:**
 

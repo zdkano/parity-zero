@@ -14,7 +14,7 @@ parity-zero is **not** a replacement for SAST, SCA, or secret scanning. It is a 
 
 ## Status
 
-**Phase 1 → Phase 2 bridge — Reviewer wedge + thin backend persistence.**
+**Phase 1 → Phase 2 bridge — Reviewer wedge + hardened backend persistence.**
 
 parity-zero is in active early development. The reviewer pipeline is functional with:
 - baseline repository profiling
@@ -30,10 +30,13 @@ parity-zero is in active early development. The reviewer pipeline is functional 
 - PR validation scenario harness
 - stable ScanResult JSON contract
 - **real PR file content loading** from workspace checkout
+- **skipped-file awareness** — changed files that are deleted, binary, too large, or unreadable are tracked with path and reason metadata (ADR-036)
 - **GitHub-native output**: job summary + PR comment posting
 - **git diff-based changed file discovery** with API fallback
 - **thin backend persistence** — SQLite-backed ingest API with bearer token auth
+- **run summary metadata** — provider status, concerns/observations/notes counts, changed/skipped file counts persisted per run (ADR-036)
 - **optional action-to-backend wiring** — reviewer can send results to backend
+- **hardened test isolation** — per-test fixtures, no shared global state (ADR-036)
 
 The full control plane dashboard is intentionally deferred. See [roadmap context](.squad/context/roadmap.md).
 
@@ -55,7 +58,7 @@ All providers are disabled by default. Provider output is **non-authoritative** 
 # Clone and install
 pip install -r requirements.txt
 
-# Run all tests (~1000 tests)
+# Run all tests (~1100 tests)
 python -m pytest tests/ -v
 
 # Run the reviewer locally with disabled provider
@@ -97,6 +100,7 @@ parity-zero includes a thin backend API for persisting review results:
 - **SQLite-backed** — zero external dependencies, works locally
 - **Authenticated** — bearer token auth via `PARITY_ZERO_AUTH_TOKEN`
 - **Minimal** — ingest + retrieval only, no dashboard or analytics yet
+- **Run summary metadata** — persists provider status, concern/observation/note counts, changed/skipped file counts per run
 
 ```bash
 # Run the backend locally
