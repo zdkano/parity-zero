@@ -459,7 +459,7 @@ class TestOutputQuality:
         for s in SCENARIOS:
             result = run_scenario(s)
             if len(result.analysis.provider_notes) == 0:
-                assert "Provider Notes" not in result.markdown or "## Provider" not in result.markdown, (
+                assert "Provider Notes" not in result.markdown and "## Provider" not in result.markdown, (
                     f"scenario {s.id} has no provider notes but shows Provider section"
                 )
 

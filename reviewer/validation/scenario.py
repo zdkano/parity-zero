@@ -536,7 +536,7 @@ def _provider_gated_out_scenario() -> ValidationScenario:
             ),
         },
         provider_mode="mock",
-        tags=["gate-skip", "low-signal", "provider-no-value"],
+        tags=["gate-skip", "low-signal", "no-provider-value"],
         security_focus=[],
         provider_value_expected=False,
         expected=ExpectedBehavior(
