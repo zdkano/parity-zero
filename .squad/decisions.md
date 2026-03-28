@@ -1581,3 +1581,35 @@ The framework has three layers:
   supported.
 - **Scenario versioning** — scenarios are currently in code; a
   file-based format may be useful if the corpus grows significantly.
+
+---
+
+## ADR-033: Documentation structure for onboarding and operability
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+Add a `docs/` directory with structured documentation for contributors and operators, covering getting started, trust model, validation harness, GitHub Action setup, architecture overview, and release packaging.
+
+### Rationale
+- The reviewer pipeline has matured to a point where operability and onboarding clarity are the next priority
+- New contributors and operators need practical documentation without reading internal `.squad/context/` files
+- GitHub Action setup needs explicit workflow examples for each provider mode
+- Trust model boundaries (findings vs concerns vs observations vs provider notes) need a clear, standalone reference
+- Release/Marketplace direction needs honest documentation of current state vs future intent
+
+### Structure
+- `docs/getting-started.md` — installation, configuration, running locally
+- `docs/trust-model.md` — output semantics and trust boundaries
+- `docs/validation.md` — scenario harness usage
+- `docs/github-action-setup.md` — workflow YAML examples per provider mode
+- `docs/architecture-overview.md` — high-level pipeline for contributors
+- `docs/release-packaging.md` — Marketplace direction and current state
+- `README.md` — updated as primary entry point with links to deeper docs
+
+### Consequences
+- `.squad/context/` remains the durable internal architecture reference
+- `docs/` is the contributor/operator-facing documentation surface
+- Documentation must be kept aligned with implementation reality as the reviewer evolves
+- No code changes, scoring changes, or contract changes were made

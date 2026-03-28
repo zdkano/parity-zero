@@ -4,112 +4,100 @@ AI-powered security reviewer for GitHub pull requests.
 
 **AI-generated code must meet the same security standards as human-written code.**
 
-## Overview
+## What is parity-zero?
 
-parity-zero is a GitHub-native AI security reviewer with a thin control plane for security teams. It runs in pull request workflows, reviews changed code for meaningful security risk, and emits structured JSON findings as a core system contract.
+parity-zero is a GitHub-native AI security reviewer that runs inside pull request workflows. It reviews changed code for meaningful security risk and emits structured JSON findings as a core system contract.
 
-See `.squad/context/product.md` for full product context and `.squad/context/architecture.md` for architecture details.
+It is designed to reason like a security engineer — using repository context, baseline profiling, review memory, and structured planning — rather than pattern-matching like a traditional scanner.
 
-## Current Phase
+parity-zero is **not** a replacement for SAST, SCA, or secret scanning. It is a contextual security reviewer that complements those tools.
 
-**Phase 1 — Reviewer wedge.** See `.squad/context/roadmap.md`.
+## Status
 
-Phase 1 keeps the LLM reviewer as the MVP. parity-zero is being built as an
-AI reviewer for pull requests, not as a replacement for SAST, SCA, or other
-broader scanning tooling.
+**Phase 1 — Reviewer wedge.**
 
-## Repository Structure
+parity-zero is in active early development. The reviewer pipeline is functional with:
+- baseline repository profiling
+- review memory
+- structured review planning (ReviewPlan)
+- review evidence aggregation (ReviewBundle)
+- plan-level concerns (ReviewConcern)
+- per-file observations (ReviewObservation)
+- deterministic findings (secrets, insecure configuration)
+- provider-agnostic reasoning runtime with gating
+- GitHub Models, Anthropic, and OpenAI provider support
+- internal reviewer traceability (ReviewTrace)
+- PR validation scenario harness
+- stable ScanResult JSON contract
 
-```
-reviewer/          GitHub Action reviewer (primary product surface)
-  action.py        Entry point — orchestrates the review flow
-  engine.py        Analysis engine — coordinates LLM review + guardrails
-  checks.py        Narrow deterministic guardrail stubs
-  reasoning.py     LLM review layer stub
-  formatter.py     Markdown PR summary formatter
+The control plane dashboard is intentionally deferred. See [roadmap context](.squad/context/roadmap.md).
 
-api/               FastAPI ingestion stub
-  main.py          App entry point with health check
-  routes/ingest.py POST /ingest endpoint
+## Supported Providers
 
-schemas/           Core JSON contract (ADR-003)
-  findings.py      Pydantic models: Finding, ScanResult
+| Provider | Env Value | Credentials Required |
+|---|---|---|
+| Disabled (default) | `disabled` | None |
+| Mock (testing) | — | None |
+| GitHub Models | `github-models` | `GITHUB_TOKEN` |
+| Anthropic | `anthropic` | `ANTHROPIC_API_KEY` |
+| OpenAI / ChatGPT | `openai` | `OPENAI_API_KEY` |
 
-tests/             Test scaffolding
-  test_schemas.py  Schema validation tests
-  test_reviewer.py Reviewer smoke tests
-  test_api.py      API endpoint tests
-
-action.yml         GitHub Action metadata
-.github/workflows/ CI workflows
-```
+All providers are disabled by default. Provider output is **non-authoritative** — it does not create findings, affect scoring, or influence the pass/warn decision. See [trust model](docs/trust-model.md).
 
 ## Quick Start
 
 ```bash
-# Install dependencies
+# Clone and install
 pip install -r requirements.txt
 
-# Run tests
-pytest tests/ -v
+# Run all tests (~1000 tests)
+python -m pytest tests/ -v
 
-# Start the ingestion API locally
-uvicorn api.main:app --reload
+# Run the reviewer locally with disabled provider
+python -m reviewer.action
+
+# Run the mock demo through the full pipeline
+python -c "from reviewer.action import mock_run; r = mock_run(); print(r['markdown'])"
+
+# Run validation scenarios
+python -m pytest tests/test_validation_harness.py -v
 ```
 
-## Key Decisions
+See [Getting Started](docs/getting-started.md) for full setup instructions.
 
-Architecture decisions are recorded in `.squad/decisions.md`.
+## GitHub Action Usage
 
-## Reasoning Provider Configuration
-
-parity-zero supports optional AI-powered reasoning via the provider system (ADR-025, ADR-026, ADR-031).  By default, reasoning is **disabled** — the reviewer runs with heuristic-based contextual notes only.
-
-### Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `PARITY_REASONING_PROVIDER` | `disabled` | Provider selection: `disabled`, `github-models`, `anthropic`, or `openai` |
-| `PARITY_REASONING_MODEL` | *(per-provider default)* | Model identifier override |
-| `GITHUB_TOKEN` | *(none)* | GitHub token for authentication (required for `github-models`) |
-| `ANTHROPIC_API_KEY` | *(none)* | Anthropic API key (required for `anthropic`) |
-| `OPENAI_API_KEY` | *(none)* | OpenAI API key (required for `openai`) |
-| `OPENAI_API_BASE` | *(none)* | Optional base URL override for OpenAI-compatible endpoints |
-
-### Enabling GitHub Models
+parity-zero is designed to run as a GitHub Action on pull request events:
 
 ```yaml
-env:
-  PARITY_REASONING_PROVIDER: github-models
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  # PARITY_REASONING_MODEL: openai/gpt-4o  # optional: override default (openai/gpt-4o-mini)
+- name: Run parity-zero reviewer
+  uses: zdkano/parity-zero@main
+  with:
+    github_token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### Enabling Anthropic
+See [GitHub Action Setup](docs/github-action-setup.md) for complete workflow examples with each provider mode.
 
-```yaml
-env:
-  PARITY_REASONING_PROVIDER: anthropic
-  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-  # PARITY_REASONING_MODEL: claude-sonnet-4-20250514  # optional: override default
-```
+## Documentation
 
-### Enabling OpenAI
+| Document | Purpose |
+|---|---|
+| [Getting Started](docs/getting-started.md) | Installation, configuration, running locally |
+| [Trust Model](docs/trust-model.md) | What outputs mean, what is authoritative, what is not |
+| [GitHub Action Setup](docs/github-action-setup.md) | Workflow YAML examples, secrets, permissions |
+| [Validation Harness](docs/validation.md) | Scenario-based testing and quality regression |
+| [Architecture Overview](docs/architecture-overview.md) | High-level pipeline for contributors |
+| [Release & Packaging](docs/release-packaging.md) | Marketplace direction and current packaging state |
 
-```yaml
-env:
-  PARITY_REASONING_PROVIDER: openai
-  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-  # PARITY_REASONING_MODEL: gpt-4o  # optional: override default (gpt-4o-mini)
-  # OPENAI_API_BASE: https://my-proxy.example.com/v1  # optional: custom endpoint
-```
+### Internal Context
 
-When enabled, any provider generates **candidate notes** that appear in the PR summary as contextual observations.  Provider output is non-authoritative — it does not create findings, affect scoring, or influence the pass/warn decision.  The trust model is identical across all providers.
+Architecture decisions and durable project context are in:
+- `.squad/decisions.md` — ADR-style decision records
+- `.squad/context/product.md` — product context
+- `.squad/context/architecture.md` — detailed architecture
+- `.squad/context/findings-taxonomy.md` — finding categories
+- `.squad/context/roadmap.md` — phased delivery plan
 
-### Behavior When Disabled
+## GitHub Marketplace
 
-When the provider is disabled (default), the reviewer produces the same output as before: heuristic-based contextual notes, deterministic findings, and structured scoring.  No API calls are made.
-
-### Error Handling
-
-If the provider is enabled but fails (network error, timeout, invalid response), the reviewer continues with its existing heuristic-based flow.  Provider failure never prevents a review from completing.
+parity-zero is being built toward GitHub Action distribution and future GitHub Marketplace packaging. The current repo is functional as a GitHub Action referenced by path or repository, but Marketplace-specific release packaging is not yet complete. See [Release & Packaging](docs/release-packaging.md).
