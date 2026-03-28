@@ -23,6 +23,13 @@ runs:
       shell: bash
       run: pip install -r ${{ github.action_path }}/requirements.txt
 
+    - name: Fetch PR base for diff
+      shell: bash
+      run: |
+        if [ -n "${{ github.event.pull_request.base.sha }}" ]; then
+          git fetch --depth=1 origin "${{ github.event.pull_request.base.sha }}" || true
+        fi
+
     - name: Run parity-zero reviewer
       shell: bash
       env:

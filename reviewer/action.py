@@ -27,6 +27,12 @@ import urllib.request
 from schemas.findings import ScanResult
 from reviewer.engine import analyse, derive_decision_and_risk
 from reviewer.formatter import format_markdown
+from reviewer.github_runtime import (
+    discover_changed_files,
+    load_file_contents,
+    post_pr_comment,
+    write_job_summary,
+)
 from reviewer.models import PRContent
 from reviewer.provider_config import resolve_provider
 
@@ -174,13 +180,23 @@ def get_changed_files(repo: str, pr_number: int) -> list[str]:
 def run() -> None:
     """Execute the reviewer workflow."""
     context = get_pr_context()
-    changed_files = get_changed_files(context["repo"], context["pr_number"])
+    event = _load_event_payload()
 
-    # TODO(phase-1): Read actual file contents from the workspace checkout.
-    # Currently passes empty content — deterministic checks will not fire
-    # in real workflows until file reading is wired in.  The mock_run()
-    # path demonstrates the full engine with realistic content.
-    file_contents = {fp: "" for fp in changed_files}
+    # Discover changed files — prefer git diff, fall back to API
+    changed_files = discover_changed_files(event)
+    if not changed_files:
+        changed_files = get_changed_files(context["repo"], context["pr_number"])
+
+    if not changed_files:
+        logger.warning("No changed files discovered; producing empty review.")
+
+    # Load actual file contents from workspace
+    workspace = os.getenv("GITHUB_WORKSPACE", os.getcwd())
+    file_contents = load_file_contents(changed_files, workspace)
+
+    if not file_contents and changed_files:
+        logger.warning("Changed files discovered but no content could be loaded.")
+
     pr_content = PRContent.from_dict(file_contents)
 
     provider = resolve_provider()
@@ -201,7 +217,7 @@ def run() -> None:
     # Emit structured JSON to stdout (core contract).
     print(result.model_dump_json(indent=2))
 
-    # Generate and emit markdown summary (includes concerns, observations, and provider notes).
+    # Generate and emit markdown summary.
     markdown = format_markdown(
         result, concerns=analysis.concerns, observations=analysis.observations,
         provider_notes=analysis.provider_notes,
@@ -209,8 +225,16 @@ def run() -> None:
     print("\n--- Markdown Summary ---\n")
     print(markdown)
 
-    # TODO: Post markdown as a PR comment via GitHub API.
-    # TODO: Optionally send result to ingestion API.
+    # Surface results in GitHub
+    summary_written = write_job_summary(markdown)
+    if summary_written:
+        logger.info("Wrote review to GitHub job summary.")
+
+    comment_posted = post_pr_comment(context["repo"], context["pr_number"], markdown)
+    if comment_posted:
+        logger.info("Posted/updated PR comment.")
+    elif context["pr_number"] > 0:
+        logger.info("PR comment not posted (token may lack permissions or not in PR context).")
 
 
 def mock_run() -> dict:
