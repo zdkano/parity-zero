@@ -75,6 +75,7 @@ _FRAMEWORK_CONTENT_HINTS: list[tuple[str, str]] = [
     ("from sqlalchemy", "sqlalchemy"),
     ("import mongoose", "mongoose"),
 ]
+# Patterns are already lowercase — matched against lowercased content.
 
 # -- Sensitive path patterns -------------------------------------------------
 
@@ -144,7 +145,7 @@ def profile_repository(
         # -- Framework hints by content --
         content_lower = content.lower()
         for pattern, framework in _FRAMEWORK_CONTENT_HINTS:
-            if pattern.lower() in content_lower:
+            if pattern in content_lower:
                 frameworks.add(framework)
 
         # -- Sensitive path detection --

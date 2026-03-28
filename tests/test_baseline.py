@@ -64,6 +64,13 @@ class TestRepoSecurityProfile:
         assert p1.profiled_at
         assert p2.profiled_at
 
+    def test_profiled_at_is_iso_format(self):
+        from datetime import datetime
+        profile = RepoSecurityProfile()
+        # Should parse without error
+        dt = datetime.fromisoformat(profile.profiled_at)
+        assert dt.tzinfo is not None  # UTC-aware
+
 
 # ======================================================================
 # BaselineScanResult model tests
@@ -109,6 +116,12 @@ class TestReviewMemoryEntry:
         )
         assert entry.category == "secrets"
         assert "AWS" in entry.summary
+
+    def test_recorded_at_is_iso_format(self):
+        from datetime import datetime
+        entry = ReviewMemoryEntry()
+        dt = datetime.fromisoformat(entry.recorded_at)
+        assert dt.tzinfo is not None  # UTC-aware
 
 
 class TestReviewMemory:

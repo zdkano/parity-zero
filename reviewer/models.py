@@ -21,6 +21,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 
+def _utc_now_iso() -> str:
+    """Return current UTC time in ISO 8601 format."""
+    return datetime.now(timezone.utc).isoformat()
+
+
 # ======================================================================
 # PR file models (ADR-011)
 # ======================================================================
@@ -116,7 +121,7 @@ class RepoSecurityProfile:
     sensitive_paths: list[str] = field(default_factory=list)
     auth_patterns: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
-    profiled_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    profiled_at: str = field(default_factory=_utc_now_iso)
 
 
 @dataclass
@@ -151,7 +156,7 @@ class ReviewMemoryEntry:
     category: str = ""
     summary: str = ""
     repo: str = ""
-    recorded_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    recorded_at: str = field(default_factory=_utc_now_iso)
 
 
 @dataclass
