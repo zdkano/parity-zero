@@ -16,6 +16,8 @@ import subprocess
 import urllib.error
 import urllib.request
 
+from reviewer.models import SkippedFile
+
 logger = logging.getLogger(__name__)
 
 # Signature marker for parity-zero PR comments — used to find and update
@@ -85,11 +87,15 @@ def discover_changed_files(event_payload: dict) -> list[str]:
 def load_file_contents(
     file_paths: list[str],
     workspace: str | None = None,
-) -> dict[str, str]:
+) -> tuple[dict[str, str], list[SkippedFile]]:
     """Load file contents from the workspace for the given paths.
 
     Reads each file from ``workspace/path``.  Skips files that are
     missing, unreadable, binary, or too large (> 1 MB).
+
+    Skipped files are returned as ``SkippedFile`` entries so that
+    downstream consumers can preserve path-level awareness of changed
+    files even when content is unavailable.  See ADR-036.
 
     Args:
         file_paths: Repo-relative file paths to load.
@@ -97,27 +103,31 @@ def load_file_contents(
             ``GITHUB_WORKSPACE`` or the current working directory.
 
     Returns:
-        A ``{path: content}`` dict for successfully loaded files.
+        A tuple of ``({path: content}, [SkippedFile, ...])``.
     """
     if workspace is None:
         workspace = os.getenv("GITHUB_WORKSPACE", os.getcwd())
 
     contents: dict[str, str] = {}
+    skipped: list[SkippedFile] = []
     for path in file_paths:
         full_path = os.path.join(workspace, path)
 
         if not os.path.isfile(full_path):
             logger.debug("Skipping %s: file does not exist (likely deleted).", path)
+            skipped.append(SkippedFile(path=path, reason="not_found"))
             continue
 
         try:
             size = os.path.getsize(full_path)
         except OSError:
             logger.debug("Skipping %s: cannot stat file.", path)
+            skipped.append(SkippedFile(path=path, reason="unreadable"))
             continue
 
         if size > _MAX_FILE_SIZE:
             logger.info("Skipping %s: file too large (%d bytes).", path, size)
+            skipped.append(SkippedFile(path=path, reason="too_large"))
             continue
 
         try:
@@ -125,20 +135,22 @@ def load_file_contents(
                 raw = fh.read()
         except (OSError, IOError) as exc:
             logger.debug("Skipping %s: read error: %s", path, exc)
+            skipped.append(SkippedFile(path=path, reason="unreadable"))
             continue
 
         try:
             text = raw.decode("utf-8")
         except UnicodeDecodeError:
             logger.debug("Skipping %s: binary file.", path)
+            skipped.append(SkippedFile(path=path, reason="binary"))
             continue
 
         contents[path] = text
 
     loaded = len(contents)
-    skipped = len(file_paths) - loaded
-    logger.info("Loaded %d file(s), skipped %d.", loaded, skipped)
-    return contents
+    skipped_count = len(skipped)
+    logger.info("Loaded %d file(s), skipped %d.", loaded, skipped_count)
+    return contents, skipped
 
 
 def write_job_summary(markdown: str) -> bool:

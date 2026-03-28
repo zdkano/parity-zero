@@ -25,7 +25,7 @@ import urllib.error
 import urllib.request
 
 from schemas.findings import ScanResult
-from reviewer.engine import analyse, derive_decision_and_risk
+from reviewer.engine import AnalysisResult, analyse, derive_decision_and_risk
 from reviewer.formatter import format_markdown
 from reviewer.github_runtime import (
     discover_changed_files,
@@ -33,7 +33,7 @@ from reviewer.github_runtime import (
     post_pr_comment,
     write_job_summary,
 )
-from reviewer.models import PRContent
+from reviewer.models import PRContent, SkippedFile
 from reviewer.provider_config import resolve_provider
 
 logger = logging.getLogger(__name__)
@@ -192,12 +192,19 @@ def run() -> None:
 
     # Load actual file contents from workspace
     workspace = os.getenv("GITHUB_WORKSPACE", os.getcwd())
-    file_contents = load_file_contents(changed_files, workspace)
+    file_contents, skipped_files = load_file_contents(changed_files, workspace)
 
     if not file_contents and changed_files:
         logger.warning("Changed files discovered but no content could be loaded.")
 
-    pr_content = PRContent.from_dict(file_contents)
+    if skipped_files:
+        logger.info(
+            "Skipped %d changed file(s): %s",
+            len(skipped_files),
+            ", ".join(f"{sf.path} ({sf.reason})" for sf in skipped_files),
+        )
+
+    pr_content = PRContent.from_dict(file_contents, skipped=skipped_files)
 
     provider = resolve_provider()
     analysis = analyse(pr_content, provider=provider)
@@ -244,7 +251,8 @@ def run() -> None:
         logger.info("PR comment not posted (token may lack permissions or not in PR context).")
 
     # Optionally send results to the backend ingest API
-    _send_to_backend(result)
+    _send_to_backend(result, analysis=analysis, changed_files_count=len(changed_files),
+                     skipped_files_count=len(skipped_files))
 
 
 def mock_run() -> dict:
@@ -336,11 +344,20 @@ def mock_run() -> dict:
     }
 
 
-def _send_to_backend(result: ScanResult) -> bool:
+def _send_to_backend(
+    result: ScanResult,
+    analysis: AnalysisResult | None = None,
+    changed_files_count: int = 0,
+    skipped_files_count: int = 0,
+) -> bool:
     """Optionally POST the ScanResult to the backend ingest API.
 
     Reads ``PARITY_ZERO_API_URL`` and ``PARITY_ZERO_API_TOKEN`` from the
     environment.  If either is absent, ingest is silently skipped.
+
+    When an ``AnalysisResult`` is provided, run summary metadata from the
+    review trace is included in the payload so the backend can persist
+    it for debugging and history.  See ADR-036.
 
     On failure, logs a warning but never crashes the action — the reviewer
     run is considered successful regardless of backend availability.
@@ -360,7 +377,24 @@ def _send_to_backend(result: ScanResult) -> bool:
         return False
 
     ingest_url = f"{api_url}/ingest"
-    payload = result.model_dump_json()
+
+    # Build payload with core ScanResult fields + run summary metadata
+    payload_dict = json.loads(result.model_dump_json())
+
+    if analysis is not None:
+        trace = analysis.trace
+        payload_dict["provider_invoked"] = trace.provider_attempted
+        payload_dict["provider_gate_decision"] = trace.provider_gate_decision
+        payload_dict["concerns_count"] = len(analysis.concerns)
+        payload_dict["observations_count"] = len(analysis.observations)
+        payload_dict["provider_notes_count"] = trace.provider_notes_returned
+        payload_dict["provider_notes_suppressed_count"] = trace.provider_notes_suppressed
+        payload_dict["provider_name"] = trace.provider_name
+
+    payload_dict["changed_files_count"] = changed_files_count
+    payload_dict["skipped_files_count"] = skipped_files_count
+
+    payload = json.dumps(payload_dict)
 
     req = urllib.request.Request(
         ingest_url,

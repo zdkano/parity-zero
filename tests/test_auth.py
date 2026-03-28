@@ -15,6 +15,7 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
+from api.auth import require_auth
 from api.main import app
 from api.persistence import ScanStore
 from api.routes.ingest import _get_store as ingest_get_store
@@ -60,15 +61,18 @@ class TestAuthEnforcement:
 
     @pytest.fixture(autouse=True)
     def _setup(self, monkeypatch):
-        """Set up a fresh app with real auth and in-memory store."""
-        # Remove any dependency overrides from other test modules
-        from api.auth import require_auth
+        """Set up a fresh app with real auth and in-memory store.
+
+        Each test function gets its own store and client.
+        Dependency overrides are cleaned up after each test.
+        """
+        # Ensure no auth override — use real auth
         app.dependency_overrides.pop(require_auth, None)
 
         # Set up in-memory store
-        self._store = ScanStore(":memory:")
-        app.dependency_overrides[ingest_get_store] = lambda: self._store
-        app.dependency_overrides[runs_get_store] = lambda: self._store
+        store = ScanStore(":memory:")
+        app.dependency_overrides[ingest_get_store] = lambda: store
+        app.dependency_overrides[runs_get_store] = lambda: store
 
         # Set the expected auth token
         monkeypatch.setenv("PARITY_ZERO_AUTH_TOKEN", _VALID_TOKEN)
@@ -76,7 +80,8 @@ class TestAuthEnforcement:
         self._client = TestClient(app)
         yield
 
-        # Clean up
+        # Clean up all overrides
+        app.dependency_overrides.pop(require_auth, None)
         app.dependency_overrides.pop(ingest_get_store, None)
         app.dependency_overrides.pop(runs_get_store, None)
 
@@ -141,18 +146,19 @@ class TestAuthTokenNotConfigured:
 
     @pytest.fixture(autouse=True)
     def _setup(self, monkeypatch):
-        from api.auth import require_auth
+        """Set up app with no server auth token."""
         app.dependency_overrides.pop(require_auth, None)
 
-        self._store = ScanStore(":memory:")
-        app.dependency_overrides[ingest_get_store] = lambda: self._store
-        app.dependency_overrides[runs_get_store] = lambda: self._store
+        store = ScanStore(":memory:")
+        app.dependency_overrides[ingest_get_store] = lambda: store
+        app.dependency_overrides[runs_get_store] = lambda: store
 
         monkeypatch.delenv("PARITY_ZERO_AUTH_TOKEN", raising=False)
 
         self._client = TestClient(app)
         yield
 
+        app.dependency_overrides.pop(require_auth, None)
         app.dependency_overrides.pop(ingest_get_store, None)
         app.dependency_overrides.pop(runs_get_store, None)
 

@@ -6,6 +6,7 @@ Validates:
   - Finding persistence
   - List/pagination
   - Edge cases (duplicate, missing fields)
+  - Run summary metadata persistence (ADR-036)
 """
 
 import pytest
@@ -214,3 +215,110 @@ class TestListRuns:
         # Just verify it doesn't error with limit > 100
         runs = store.list_runs(limit=200)
         assert isinstance(runs, list)
+
+
+# ---------------------------------------------------------------------------
+# Run summary metadata (ADR-036)
+# ---------------------------------------------------------------------------
+
+class TestRunSummaryMetadata:
+    """Tests that run summary metadata fields persist and retrieve correctly."""
+
+    def test_provider_invoked_persisted(self):
+        store = _make_store()
+        store.save_run(_valid_run(provider_invoked=True))
+        run = store.get_run("a" * 32)
+        assert run["provider_invoked"] == 1
+
+    def test_provider_invoked_defaults_to_false(self):
+        store = _make_store()
+        store.save_run(_valid_run())
+        run = store.get_run("a" * 32)
+        assert run["provider_invoked"] == 0
+
+    def test_provider_gate_decision_persisted(self):
+        store = _make_store()
+        store.save_run(_valid_run(provider_gate_decision="invoked"))
+        run = store.get_run("a" * 32)
+        assert run["provider_gate_decision"] == "invoked"
+
+    def test_concerns_count_persisted(self):
+        store = _make_store()
+        store.save_run(_valid_run(concerns_count=5))
+        run = store.get_run("a" * 32)
+        assert run["concerns_count"] == 5
+
+    def test_observations_count_persisted(self):
+        store = _make_store()
+        store.save_run(_valid_run(observations_count=3))
+        run = store.get_run("a" * 32)
+        assert run["observations_count"] == 3
+
+    def test_provider_notes_count_persisted(self):
+        store = _make_store()
+        store.save_run(_valid_run(provider_notes_count=8))
+        run = store.get_run("a" * 32)
+        assert run["provider_notes_count"] == 8
+
+    def test_provider_notes_suppressed_count_persisted(self):
+        store = _make_store()
+        store.save_run(_valid_run(provider_notes_suppressed_count=2))
+        run = store.get_run("a" * 32)
+        assert run["provider_notes_suppressed_count"] == 2
+
+    def test_changed_files_count_persisted(self):
+        store = _make_store()
+        store.save_run(_valid_run(changed_files_count=12))
+        run = store.get_run("a" * 32)
+        assert run["changed_files_count"] == 12
+
+    def test_skipped_files_count_persisted(self):
+        store = _make_store()
+        store.save_run(_valid_run(skipped_files_count=3))
+        run = store.get_run("a" * 32)
+        assert run["skipped_files_count"] == 3
+
+    def test_all_summary_metadata_defaults(self):
+        store = _make_store()
+        store.save_run(_valid_run())
+        run = store.get_run("a" * 32)
+        assert run["provider_invoked"] == 0
+        assert run["provider_gate_decision"] == ""
+        assert run["concerns_count"] == 0
+        assert run["observations_count"] == 0
+        assert run["provider_notes_count"] == 0
+        assert run["provider_notes_suppressed_count"] == 0
+        assert run["changed_files_count"] == 0
+        assert run["skipped_files_count"] == 0
+
+    def test_all_summary_metadata_with_values(self):
+        store = _make_store()
+        store.save_run(_valid_run(
+            provider_name="anthropic",
+            provider_invoked=True,
+            provider_gate_decision="invoked",
+            concerns_count=2,
+            observations_count=4,
+            provider_notes_count=6,
+            provider_notes_suppressed_count=1,
+            changed_files_count=15,
+            skipped_files_count=3,
+        ))
+        run = store.get_run("a" * 32)
+        assert run["provider_name"] == "anthropic"
+        assert run["provider_invoked"] == 1
+        assert run["provider_gate_decision"] == "invoked"
+        assert run["concerns_count"] == 2
+        assert run["observations_count"] == 4
+        assert run["provider_notes_count"] == 6
+        assert run["provider_notes_suppressed_count"] == 1
+        assert run["changed_files_count"] == 15
+        assert run["skipped_files_count"] == 3
+
+    def test_summary_metadata_in_list_runs(self):
+        store = _make_store()
+        store.save_run(_valid_run(changed_files_count=10, skipped_files_count=2))
+        runs = store.list_runs()
+        assert len(runs) == 1
+        assert runs[0]["changed_files_count"] == 10
+        assert runs[0]["skipped_files_count"] == 2

@@ -8,7 +8,9 @@ Migration to Postgres or another store is expected in later phases as query
 and reporting needs grow.  See ADR-035.
 
 Schema:
-  - ``runs`` — scan-level metadata (one row per ingest)
+  - ``runs`` — scan-level metadata (one row per ingest) including summary
+    counts for findings, concerns, observations, provider notes, changed
+    files, and skipped files.  See ADR-036.
   - ``findings`` — individual findings linked to a run
 
 The module exposes a ``ScanStore`` class that manages database lifecycle,
@@ -41,6 +43,14 @@ CREATE TABLE IF NOT EXISTS runs (
     risk_score  INTEGER NOT NULL,
     findings_count INTEGER NOT NULL,
     provider_name TEXT NOT NULL DEFAULT '',
+    provider_invoked INTEGER NOT NULL DEFAULT 0,
+    provider_gate_decision TEXT NOT NULL DEFAULT '',
+    concerns_count INTEGER NOT NULL DEFAULT 0,
+    observations_count INTEGER NOT NULL DEFAULT 0,
+    provider_notes_count INTEGER NOT NULL DEFAULT 0,
+    provider_notes_suppressed_count INTEGER NOT NULL DEFAULT 0,
+    changed_files_count INTEGER NOT NULL DEFAULT 0,
+    skipped_files_count INTEGER NOT NULL DEFAULT 0,
     ingested_at TEXT NOT NULL
 );
 
@@ -130,8 +140,13 @@ class ScanStore:
             """
             INSERT INTO runs
                 (scan_id, repo, pr_number, commit_sha, ref, timestamp,
-                 decision, risk_score, findings_count, provider_name, ingested_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 decision, risk_score, findings_count, provider_name,
+                 provider_invoked, provider_gate_decision,
+                 concerns_count, observations_count,
+                 provider_notes_count, provider_notes_suppressed_count,
+                 changed_files_count, skipped_files_count,
+                 ingested_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 scan_id,
@@ -144,6 +159,14 @@ class ScanStore:
                 payload.get("risk_score", 0),
                 len(payload.get("findings", [])),
                 payload.get("provider_name", ""),
+                1 if payload.get("provider_invoked", False) else 0,
+                payload.get("provider_gate_decision", ""),
+                payload.get("concerns_count", 0),
+                payload.get("observations_count", 0),
+                payload.get("provider_notes_count", 0),
+                payload.get("provider_notes_suppressed_count", 0),
+                payload.get("changed_files_count", 0),
+                payload.get("skipped_files_count", 0),
                 ingested_at,
             ),
         )
