@@ -937,3 +937,107 @@ Provider output remains explicitly non-authoritative:
   or chunking strategy is implemented yet.
 - **Cost management** — no cost tracking or budget enforcement for API calls.
 - **Caching** — repeated reasoning requests for the same PR context are not cached.
+
+---
+
+## ADR-027: Provider output quality pass — prompt shaping, note normalization, overlap suppression
+
+**Date:** 2026-03-28
+
+**Status:** Accepted
+
+**Context:**
+
+ADR-025 and ADR-026 established the provider-agnostic reasoning interface and
+the GitHub Models provider.  Provider output flows as candidate notes — non-
+authoritative, markdown-only material.  However, the initial implementation had
+several quality gaps:
+
+- The system prompt was generic, not security-review-specific.
+- Provider notes were unstructured strings (`list[str]`), making deduplication
+  and rendering difficult.
+- No mechanism prevented provider notes from restating concerns, observations,
+  or deterministic findings already present in the pipeline.
+- Provider notes were not rendered as a distinct section in markdown output.
+- The note cap was too generous (20), risking noisy output.
+
+These gaps reduce the usefulness of provider-backed review output without
+changing the trust model.
+
+**Decision:**
+
+Improve the provider-backed reasoning path in a single quality pass:
+
+1. **Prompt shaping** — rewrite the system prompt to be more security-review-
+   specific.  Explicitly instruct the model to: not restate deterministic
+   findings, not produce generic best-practice filler, be file-specific, express
+   genuine uncertainty, and return structured JSON objects instead of flat
+   strings.  The user prompt now groups already-detected context (concerns,
+   observations, deterministic findings) under a clear "ALREADY DETECTED"
+   heading to reduce redundant output.
+
+2. **CandidateNote normalization** — introduce an internal `CandidateNote`
+   dataclass in `providers.py` with fields: `title`, `summary`,
+   `related_paths`, `confidence`, `source`.  The response parser now handles
+   both structured JSON objects (preferred) and flat string arrays (backward-
+   compatible fallback).  Confidence values are clamped to `low`/`medium` — 
+   candidate notes never carry `high` confidence.  `ReasoningResponse` gains
+   a `structured_notes` field alongside the backward-compatible
+   `candidate_notes`.
+
+3. **Overlap suppression** — add lightweight keyword-based overlap suppression
+   in `reasoning.py`.  Provider notes that share >60% keyword overlap with
+   existing concerns, observations, or deterministic findings are suppressed.
+   Remaining notes are capped at 5.  This is intentionally heuristic — a
+   simple, explainable filter rather than a complex ranking engine.
+
+4. **Markdown rendering** — add a distinct "Additional Review Notes" section in
+   `formatter.py`, rendered after observations and before the footer.  Notes
+   are explicitly marked as non-authoritative AI-generated material.  The
+   section is capped at 5 notes and omitted entirely when empty.
+
+5. **Note cap** — reduced from 20 to 10 at the parsing stage, and further
+   to 5 after overlap suppression and in markdown rendering.
+
+**What did not change:**
+
+- The trust model: provider notes remain non-finding, non-scoring.
+- ScanResult JSON contract: no new fields, no shape change.
+- Deterministic checks: unaffected.
+- DisabledProvider behavior: preserved exactly.
+- Backward compatibility: all existing callers and tests continue to work.
+
+**Consequences:**
+
+- Provider output is now more security-review-relevant and less generic.
+- Redundant output is suppressed against existing pipeline context.
+- Markdown output clearly separates provider notes from proven findings,
+  concerns, and observations.
+- The `CandidateNote` dataclass provides a clean internal shape for future
+  note-level reasoning (e.g., selective invocation, richer schemas).
+- The overlap suppression threshold (60%) and note cap (5) are tunable
+  heuristics that may need adjustment with live usage data.
+
+**Tests:**
+
+- 49 new focused tests covering prompt structure, CandidateNote normalization,
+  overlap suppression, markdown rendering, trust-model regression, and pipeline
+  flow.
+- All 717 tests pass (664 original + 53 new/updated).
+
+**Deferred concerns:**
+
+- **Provider notes remain non-authoritative** — the trust model for promoting
+  provider notes to findings is not changed.  This remains a future concern.
+- **Prompt tuning is iterative** — the current prompt wording is improved but
+  not final.  Live usage will reveal further tuning opportunities.
+- **Overlap suppression is heuristic** — keyword-based overlap is simple and
+  explainable but may miss semantic equivalence or over-suppress.  Future work
+  may introduce embedding-based similarity.
+- **Ranking/selection remains basic** — notes are capped but not ranked by
+  quality.  Future iterations may rank by confidence, relevance, or novelty.
+- **Richer provider note schemas** — `CandidateNote` could grow fields like
+  `category`, `suggested_action`, or `evidence_snippet`.  Deferred until the
+  provider trust model matures.
+- **Selective provider invocation** — calling the provider only for high-focus
+  files would reduce cost and noise.  Deferred to later iterations.
