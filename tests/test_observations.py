@@ -608,7 +608,8 @@ class TestObservationNoOverclaiming:
         json_str = result.model_dump_json()
         data = json.loads(json_str)
         assert "observations" not in data
-        assert "observation" not in json_str.lower().replace("observation", "").replace('"', '')
+        # Verify no observation-related keys in the JSON output
+        assert all("observation" not in key for key in data.keys())
 
     def test_scan_result_json_shape_unchanged(self):
         """ScanResult JSON keys are exactly the expected set."""
