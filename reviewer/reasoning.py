@@ -6,6 +6,7 @@ security analysis that consumes:
   - PR delta (changed files and their content)
   - baseline repository security profile (ADR-015)
   - review memory and prior findings themes (ADR-016)
+  - structured review plan (ADR-021)
   - deterministic support signals (ADR-013, consumed via engine)
   - policy/intent context (later phases)
 
@@ -19,9 +20,10 @@ understands the repository context — see ADR-014.
 See also: architecture.md § Reasoning Layer (Contextual Review).
 
 Phase 1 implementation: baseline-aware and memory-aware contextual review
-notes.  The layer uses ``PullRequestContext`` as its canonical input and
-produces structured notes based on overlap between PR delta, repo baseline,
-and review memory.  LLM integration will be added in a subsequent iteration.
+notes, now driven by a structured ``ReviewPlan`` (ADR-021).  The planner
+derives focus areas from ``PullRequestContext`` and the reasoning layer
+translates plan focus into contextual notes.  LLM integration will be
+added in a subsequent iteration.
 """
 
 from __future__ import annotations
@@ -29,38 +31,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from schemas.findings import Finding
-from reviewer.models import PullRequestContext, RepoSecurityProfile, ReviewMemory
+from reviewer.models import PullRequestContext, RepoSecurityProfile, ReviewMemory, ReviewPlan
 
-
-# -- Sensitive path segment list (mirrors baseline.py for overlap detection) --
-_SENSITIVE_PATH_SEGMENTS: list[str] = [
-    "auth",
-    "admin",
-    "security",
-    "secrets",
-    "credentials",
-    "keys",
-    "certificates",
-    "certs",
-    "config",
-    "settings",
-    "deploy",
-    "migration",
-    "migrations",
-    "middleware",
-]
-
-# -- Auth-related path segments for direct path matching --
-_AUTH_PATH_SEGMENTS: list[str] = [
-    "auth",
-    "login",
-    "oauth",
-    "session",
-    "token",
-    "permissions",
-    "rbac",
-    "acl",
-]
+# Canonical path analysis helpers live in planner.py (ADR-021).
+# Re-exported here for backward compatibility with existing callers/tests.
+from reviewer.planner import (  # noqa: F401
+    sensitive_path_overlap as _sensitive_path_overlap,
+    auth_path_overlap as _auth_path_overlap,
+    infer_path_categories as _infer_path_categories,
+    relevant_memory_entries as _relevant_memory_entries,
+    build_review_plan,
+)
 
 
 @dataclass
@@ -82,7 +63,10 @@ class ReasoningResult:
     notes: list[str] = field(default_factory=list)
 
 
-def run_reasoning(ctx: PullRequestContext | dict[str, str]) -> ReasoningResult:
+def run_reasoning(
+    ctx: PullRequestContext | dict[str, str],
+    plan: ReviewPlan | None = None,
+) -> ReasoningResult:
     """Run contextual security review against changed files with repo context.
 
     ``PullRequestContext`` is the **canonical input** (ADR-018, ADR-019).
@@ -90,8 +74,13 @@ def run_reasoning(ctx: PullRequestContext | dict[str, str]) -> ReasoningResult:
     is automatically wrapped — callers should migrate to
     ``PullRequestContext``.
 
+    When a ``ReviewPlan`` is provided (ADR-021), contextual notes are
+    derived from the structured plan rather than ad-hoc overlap checks.
+    This ensures that review attention is driven by a single, explicit
+    planning step.
+
     Phase 1 behaviour:
-    - produces contextual notes based on baseline profile overlap
+    - produces contextual notes from the review plan or baseline overlap
     - surfaces relevant review memory as historical awareness
     - does not yet produce LLM-generated findings
     - notes are informational and do not affect decision or risk_score
@@ -99,6 +88,8 @@ def run_reasoning(ctx: PullRequestContext | dict[str, str]) -> ReasoningResult:
     Args:
         ctx: A ``PullRequestContext`` (preferred) or a legacy
             ``{path: content}`` dict.
+        plan: An optional ``ReviewPlan`` that structures review focus.
+            When provided, notes are derived from the plan.
 
     Returns:
         A ReasoningResult with contextual notes and (currently empty)
@@ -109,7 +100,6 @@ def run_reasoning(ctx: PullRequestContext | dict[str, str]) -> ReasoningResult:
         ctx = PullRequestContext.from_dict(ctx)
 
     file_contents = ctx.pr_content.to_dict()
-    changed_paths = ctx.pr_content.paths
     notes: list[str] = []
 
     if not file_contents:
@@ -121,19 +111,91 @@ def run_reasoning(ctx: PullRequestContext | dict[str, str]) -> ReasoningResult:
         f"Contextual review examined {file_count} file(s)."
     )
 
-    # -- Baseline-aware contextual notes --
-    if ctx.has_baseline and ctx.baseline_profile is not None:
-        _add_baseline_notes(notes, changed_paths, ctx.baseline_profile)
-
-    # -- Memory-aware contextual notes --
-    if ctx.has_memory and ctx.memory is not None:
-        _add_memory_notes(notes, changed_paths, ctx.memory)
+    # -- Plan-driven contextual notes (ADR-021) --
+    if plan is not None:
+        _add_plan_notes(notes, plan)
+    else:
+        # Legacy path: derive notes directly from context overlap
+        changed_paths = ctx.pr_content.paths
+        if ctx.has_baseline and ctx.baseline_profile is not None:
+            _add_baseline_notes(notes, changed_paths, ctx.baseline_profile)
+        if ctx.has_memory and ctx.memory is not None:
+            _add_memory_notes(notes, changed_paths, ctx.memory)
 
     return ReasoningResult(findings=[], notes=notes)
 
 
 # ======================================================================
-# Baseline-aware contextual review
+# Plan-driven contextual notes (ADR-021)
+# ======================================================================
+
+
+def _add_plan_notes(notes: list[str], plan: ReviewPlan) -> None:
+    """Generate contextual notes from a structured ReviewPlan.
+
+    Translates the plan's focus areas, flags, and guidance into
+    informational review notes.  This replaces ad-hoc overlap checks
+    when a plan is available.
+    """
+    # -- Sensitive path notes --
+    if plan.sensitive_paths_touched:
+        paths_str = ", ".join(f"`{p}`" for p in plan.sensitive_paths_touched[:5])
+        notes.append(
+            f"This PR touches sensitive path(s): {paths_str}. "
+            f"Changes in these areas warrant closer security review."
+        )
+
+    # -- Auth path notes --
+    if plan.auth_paths_touched:
+        paths_str = ", ".join(f"`{p}`" for p in plan.auth_paths_touched[:5])
+        notes.append(
+            f"This PR modifies authentication/authorisation-related path(s): "
+            f"{paths_str}. "
+            f"Verify that access control logic remains correct."
+        )
+
+    # -- Auth pattern context --
+    if plan.auth_pattern_context:
+        patterns_str = ", ".join(plan.auth_pattern_context[:4])
+        notes.append(
+            f"Repository baseline indicates auth-related patterns: "
+            f"{patterns_str}. "
+            f"Review changes for consistency with existing auth mechanisms."
+        )
+
+    # -- Framework context --
+    if plan.framework_context:
+        frameworks_str = ", ".join(plan.framework_context[:4])
+        notes.append(
+            f"Repository uses: {frameworks_str}. "
+            f"Review considers framework-specific security conventions."
+        )
+
+    # -- Focus areas summary --
+    if plan.focus_areas:
+        areas_str = ", ".join(plan.focus_areas)
+        notes.append(
+            f"Review plan focus areas: {areas_str}."
+        )
+
+    # -- Memory context --
+    if plan.relevant_memory_categories:
+        cats_str = ", ".join(plan.relevant_memory_categories)
+        notes.append(
+            f"Review memory includes prior concerns in: {cats_str}. "
+            f"These recurring themes are noted as historical context."
+        )
+
+    # -- Review flags summary --
+    if plan.review_flags:
+        flags_str = ", ".join(plan.review_flags)
+        notes.append(
+            f"Review flags: {flags_str}."
+        )
+
+
+# ======================================================================
+# Baseline-aware contextual review (legacy path, used when no plan)
 # ======================================================================
 
 
@@ -195,43 +257,8 @@ def _add_baseline_notes(
         )
 
 
-def _sensitive_path_overlap(
-    changed_paths: list[str],
-    baseline_sensitive: list[str],
-) -> list[str]:
-    """Return changed paths that overlap with baseline sensitive paths.
-
-    A changed path overlaps if it exactly matches a baseline sensitive path
-    or if any of its path segments match known sensitive path segments.
-    """
-    baseline_set = set(baseline_sensitive)
-    overlapping: list[str] = []
-
-    for path in changed_paths:
-        # Direct match with baseline sensitive paths
-        if path in baseline_set:
-            overlapping.append(path)
-            continue
-        # Segment-based match
-        segments = path.lower().split("/")
-        if any(seg in _SENSITIVE_PATH_SEGMENTS for seg in segments):
-            overlapping.append(path)
-
-    return overlapping
-
-
-def _auth_path_overlap(changed_paths: list[str]) -> list[str]:
-    """Return changed paths that appear to be in auth-related areas."""
-    auth_paths: list[str] = []
-    for path in changed_paths:
-        segments = path.lower().split("/")
-        if any(seg in _AUTH_PATH_SEGMENTS for seg in segments):
-            auth_paths.append(path)
-    return auth_paths
-
-
 # ======================================================================
-# Memory-aware contextual review
+# Memory-aware contextual review (legacy path, used when no plan)
 # ======================================================================
 
 
@@ -271,63 +298,3 @@ def _add_memory_notes(
         notes.append(
             f"Prior review note ({entry.category}): {entry.summary}"
         )
-
-
-def _infer_path_categories(changed_paths: list[str]) -> set[str]:
-    """Infer likely finding categories from changed file paths.
-
-    This is a lightweight heuristic — it maps path segments to
-    the finding taxonomy categories to enable memory relevance matching.
-    """
-    categories: set[str] = set()
-    for path in changed_paths:
-        path_lower = path.lower()
-        segments = path_lower.split("/")
-
-        # Auth-related paths
-        if any(seg in ("auth", "login", "oauth", "session", "token",
-                        "permissions", "rbac", "acl") for seg in segments):
-            categories.add("authentication")
-            categories.add("authorization")
-
-        # Config/settings paths
-        if any(seg in ("config", "settings", "deploy") for seg in segments):
-            categories.add("insecure_configuration")
-            categories.add("secrets")
-
-        # Security paths
-        if any(seg in ("security", "middleware") for seg in segments):
-            categories.add("authentication")
-            categories.add("authorization")
-
-        # Admin paths
-        if "admin" in segments:
-            categories.add("authorization")
-
-        # Dependency files
-        basename = path.split("/")[-1].lower() if "/" in path else path_lower
-        if basename in ("requirements.txt", "package.json", "go.mod",
-                        "cargo.toml", "gemfile", "pom.xml", "build.gradle",
-                        "composer.json"):
-            categories.add("dependency_risk")
-
-    return categories
-
-
-def _relevant_memory_entries(
-    changed_paths: list[str],
-    memory: ReviewMemory,
-) -> list:
-    """Return memory entries relevant to the current PR paths.
-
-    An entry is relevant if its category matches a category inferred
-    from the changed file paths.
-    """
-    path_categories = _infer_path_categories(changed_paths)
-    if not path_categories:
-        return []
-
-    return [
-        entry for entry in memory.entries
-        if entry.category in path_categories
-    ]
