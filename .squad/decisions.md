@@ -667,3 +667,84 @@ PullRequestContext and ReviewPlan using simple, explainable heuristics.
 - Bundle persistence or caching across review runs
 - Adding bundle information to the JSON contract (if downstream consumers need it)
 - AST-based or code-graph-based related-file discovery
+
+---
+
+## ADR-024: ReviewObservation — per-file security review observations from ReviewBundle
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Context
+ReviewBundle (ADR-023) gathers structured per-file evidence for contextual review.
+ReviewConcern (ADR-022) produces plan-level observations about areas deserving
+attention.  However, the reviewer did not yet produce targeted, per-file analysis
+that explains *why a specific changed file* deserves scrutiny based on its gathered
+context.
+
+Moving toward semantically useful review analysis requires a layer that translates
+per-file bundle evidence into reviewer-like observations — connecting focus areas,
+baseline context, memory context, and review reasons into actionable notes.
+
+### Decision
+Introduce **ReviewObservation** as a lightweight dataclass representing a targeted
+security review observation tied to a specific changed file.
+
+- `ReviewObservation` carries: path, focus_area, title, summary, confidence, basis,
+  related_paths.
+- Observations are generated from ReviewBundle items by `generate_observations(bundle)`
+  in a dedicated `reviewer/observations.py` module.
+- Observations flow through `ReasoningResult.observations` and `AnalysisResult.observations`
+  to `format_markdown()` where they appear in a dedicated "Review Observations" section.
+
+### What is implemented
+- `ReviewObservation` dataclass in `reviewer/models.py`
+- `generate_observations(bundle)` in `reviewer/observations.py` deriving observations from
+  ReviewBundleItem context:
+  - Sensitive + auth combined item → boundary preservation observation (medium confidence)
+  - Auth area with baseline auth patterns → auth flow consistency observation (medium confidence)
+  - Auth area without baseline patterns → auth path observation (low confidence)
+  - Sensitive path with framework context → framework secure defaults observation (low confidence)
+  - Sensitive path without framework context → sensitive path observation (low confidence)
+  - Item with memory context alignment → recurring attention area observation (low confidence)
+  - Plain changed file with no signals → no observation (noise control)
+- `ReasoningResult` and `AnalysisResult` carry observations alongside findings, concerns, and notes
+- `format_markdown()` renders observations in a clearly separated "📋 Review Observations" section
+  with an explicit "not findings or proven issues" disclaimer
+- `mock_run()` returns observations in its output dict
+- 48 new tests covering generation, relevance, noise control, markdown output, no-overclaiming,
+  JSON contract stability, and full pipeline integration
+
+### Key design choices
+- **Observations are per-file and bundle-driven.** Unlike concerns (which are plan-level),
+  observations are tied to specific files and derived from ReviewBundleItem evidence.  This makes
+  them more targeted and specific.
+- **Observations are internal and markdown-only.** The ScanResult JSON contract is unchanged —
+  observations do not appear in the JSON payload.
+- **Observations preserve uncertainty honestly.** Confidence is capped at medium; vulnerability
+  language is avoided; the markdown section includes an explicit disclaimer.
+- **Observations do not affect scoring.** Risk score and decision remain derived from findings only.
+- **No noise for weak context.** Plain changed files with no sensitive/auth/memory signals produce
+  no observations.
+- **Observations are distinct from concerns.** Concerns are plan-level signals; observations are
+  per-file bundle-derived analysis.  Both are distinct from findings.
+- **Bounded output.** Maximum 10 observations per bundle to avoid excessive verbosity.
+- **Backward compatible.** `format_markdown()` accepts optional observations parameter; existing
+  callers continue to work without changes.
+
+### Consequences
+- Review output now clearly distinguishes three layers: findings (proven), concerns (plan-level),
+  observations (per-file analysis)
+- Developers and security engineers see targeted per-file notes explaining why closer scrutiny
+  is warranted and what contextual basis supports that attention
+- The observation model is a natural integration point for future provider-backed reasoning
+- The JSON contract is unchanged
+- Risk scoring is unchanged
+
+### Deferred concerns
+- Provider-backed semantic analysis to enrich observation quality beyond heuristics
+- Observation-to-concern or observation-to-finding promotion logic
+- Scoring impact from observations (if observations should influence risk score)
+- Observation aggregation across PRs (control plane feature, Phase 2+)
+- Adding observations to the JSON contract (if downstream consumers need them)
+- Richer observation templates using diff hunks or symbol-level context

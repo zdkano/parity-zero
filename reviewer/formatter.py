@@ -6,6 +6,10 @@ for posting as a GitHub PR comment.
 Optionally includes plan-informed review concerns (ADR-022) — contextual
 observations that are clearly distinct from proven findings.
 
+Optionally includes per-file review observations (ADR-024) — targeted
+analysis of why specific files deserve scrutiny, derived from ReviewBundle
+evidence.
+
 Design goals (from team.md):
   - clear, practical, and low-noise
   - actionable recommendations
@@ -17,7 +21,7 @@ ScanResult remains the authoritative system contract.
 
 from __future__ import annotations
 
-from reviewer.models import ReviewConcern
+from reviewer.models import ReviewConcern, ReviewObservation
 from schemas.findings import Decision, ScanResult, Severity
 
 _DECISION_BADGES: dict[Decision, str] = {
@@ -37,6 +41,7 @@ def _risk_bar(score: int) -> str:
 def format_markdown(
     result: ScanResult,
     concerns: list[ReviewConcern] | None = None,
+    observations: list[ReviewObservation] | None = None,
 ) -> str:
     """Render a ScanResult as a markdown PR summary.
 
@@ -45,6 +50,10 @@ def format_markdown(
         concerns: Optional plan-informed review concerns to display
             in a separate section.  These are clearly distinct from
             proven findings.
+        observations: Optional per-file review observations to display
+            in a separate section.  These are targeted analysis notes
+            tied to specific files, distinct from both findings and
+            concerns.
 
     Returns:
         A markdown string suitable for a GitHub PR comment.
@@ -67,6 +76,7 @@ def format_markdown(
         lines.append("No security findings identified in this change.")
         lines.append("")
         _append_concerns(lines, concerns)
+        _append_observations(lines, observations)
         _append_footer(lines, result)
         return "\n".join(lines)
 
@@ -113,6 +123,7 @@ def format_markdown(
         lines.append("")
 
     _append_concerns(lines, concerns)
+    _append_observations(lines, observations)
     _append_footer(lines, result)
     return "\n".join(lines)
 
@@ -146,6 +157,41 @@ def _append_concerns(
         lines.append(f"  {concern.summary}")
         if concern.related_paths:
             paths_str = ", ".join(f"`{p}`" for p in concern.related_paths[:3])
+            lines.append(f"  Related: {paths_str}")
+        lines.append("")
+
+
+def _append_observations(
+    lines: list[str],
+    observations: list[ReviewObservation] | None,
+) -> None:
+    """Append per-file review observations as a clearly separated section.
+
+    Observations are targeted analysis notes tied to specific files.  They are
+    distinct from findings (proven issues) and concerns (plan-level signals).
+    """
+    if not observations:
+        return
+
+    lines.append("### 📋 Review Observations")
+    lines.append("")
+    lines.append(
+        "*Per-file analysis notes — these highlight why specific files "
+        "may warrant closer review based on repository context.  "
+        "They are not findings or proven issues.*"
+    )
+    lines.append("")
+
+    for obs in observations:
+        confidence_tag = f"confidence: {obs.confidence}"
+        path_tag = f"`{obs.path}`" if obs.path else ""
+        lines.append(
+            f"- **{obs.title}** ({confidence_tag})"
+            + (f" — {path_tag}" if path_tag else "")
+        )
+        lines.append(f"  {obs.summary}")
+        if obs.related_paths:
+            paths_str = ", ".join(f"`{p}`" for p in obs.related_paths[:3])
             lines.append(f"  Related: {paths_str}")
         lines.append("")
 
