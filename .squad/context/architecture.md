@@ -138,7 +138,7 @@ live credentials required.
 
 ---
 
-### 6e. Reasoning Runtime Boundary (ADR-025, ADR-026, ADR-029)
+### 6e. Reasoning Runtime Boundary (ADR-025, ADR-026, ADR-029, ADR-031)
 A provider-agnostic interface for reasoning backends.
 
 Components:
@@ -148,8 +148,9 @@ Components:
 - **ReasoningResponse** — structured output (candidate notes, candidate findings)
 - **DisabledProvider** — no-op default (current behavior preserved)
 - **MockProvider** — predictable output for testing and local development
-- **GitHubModelsProvider** — first live reasoning provider using GitHub Models
-  inference API (ADR-026).  Optional, disabled by default.
+- **GitHubModelsProvider** — live reasoning via GitHub Models inference API (ADR-026)
+- **AnthropicProvider** — live reasoning via Anthropic Messages API (ADR-031)
+- **OpenAIProvider** — live reasoning via OpenAI Chat Completions API (ADR-031)
 - **Prompt builder** (`build_reasoning_request()`) — canonical input assembly
 - **Provider config** (`resolve_provider()`) — environment-based provider resolution
 - **Provider gate** (`evaluate_provider_gate()`) — lightweight context-richness
@@ -158,13 +159,14 @@ Components:
 
 The runtime boundary is intentionally minimal.  Provider output is *candidate*
 material — trust calibration for provider-generated findings is a separate
-design dimension for later phases.
+design dimension for later phases.  The trust model is identical across all
+providers.
 
 Phase 1 status: DisabledProvider and MockProvider are implemented.
-GitHubModelsProvider is the first live provider (ADR-026), enabled via
-`PARITY_REASONING_PROVIDER=github-models` and `GITHUB_TOKEN`.  Provider
-invocation is gated by context richness (ADR-029).  External LLM providers
-are deferred.
+GitHubModelsProvider (ADR-026), AnthropicProvider, and OpenAIProvider
+(ADR-031) are available as live providers.  All are disabled by default,
+enabled via `PARITY_REASONING_PROVIDER` environment variable.  Provider
+invocation is gated by context richness (ADR-029).
 
 ---
 

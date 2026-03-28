@@ -1347,3 +1347,153 @@ The trace is **internal only**.  It does not appear in:
 - **No structured trace schema yet** — the trace is a plain dataclass,
   not a Pydantic model.  If trace data is later persisted or exported,
   a schema may be defined.
+
+---
+
+## ADR-031: Anthropic and OpenAI as live reasoning providers
+
+**Date:** 2026-03-28
+
+**Status:** Accepted
+
+**Context:**
+
+ADR-026 introduced GitHubModelsProvider as the first live reasoning provider.
+The provider abstraction (ADR-025) was designed to support multiple backends.
+To give teams flexibility in provider choice and avoid vendor lock-in, we
+add Anthropic and OpenAI as second and third live provider options.
+
+Both must fit the existing ``ReasoningProvider`` interface, preserve the
+identical trust model (candidate notes only), and degrade gracefully on
+any failure.
+
+**Decision:**
+
+Add ``AnthropicProvider`` and ``OpenAIProvider`` as live reasoning providers
+in ``reviewer/providers.py``, extending provider resolution in
+``reviewer/provider_config.py``.
+
+### Provider naming and config
+
+The ``PARITY_REASONING_PROVIDER`` environment variable now supports:
+- ``disabled`` (default) — no live reasoning.
+- ``github-models`` — GitHub Models inference API (ADR-026).
+- ``anthropic`` — Anthropic Messages API.
+- ``openai`` — OpenAI Chat Completions API.
+
+Provider-specific environment variables:
+- ``GITHUB_TOKEN`` — required for ``github-models``.
+- ``ANTHROPIC_API_KEY`` — required for ``anthropic``.
+- ``OPENAI_API_KEY`` — required for ``openai``.
+- ``OPENAI_API_BASE`` — optional base URL override for OpenAI-compatible
+  endpoints.
+- ``PARITY_REASONING_MODEL`` — shared model override, per-provider defaults.
+
+### Anthropic implementation
+
+- Uses the Anthropic Messages API (``/v1/messages``).
+- Authenticates via ``x-api-key`` header.
+- Sends system prompt as top-level ``system`` field (Anthropic convention).
+- Parses response from ``content[0].text`` (text content blocks).
+- Default model: ``claude-sonnet-4-20250514``.
+- Concatenates multiple text content blocks if returned.
+
+### OpenAI implementation
+
+- Uses the OpenAI Chat Completions API (``/v1/chat/completions``).
+- Authenticates via ``Authorization: Bearer`` header.
+- Uses same message format as GitHubModelsProvider (OpenAI-compatible).
+- Parses response from ``choices[0].message.content``.
+- Default model: ``gpt-4o-mini``.
+- Supports ``OPENAI_API_BASE`` for third-party OpenAI-compatible endpoints.
+
+### Shared logic
+
+Both providers reuse the existing shared infrastructure:
+- ``_format_user_prompt()`` for prompt assembly from ``ReasoningRequest``.
+- ``_parse_candidate_notes()`` for normalising model output into
+  ``CandidateNote`` objects.
+- ``_SYSTEM_PROMPT`` for constraining model output.
+
+OpenAI and GitHub Models share the same API shape (OpenAI chat completions
+format).  They are kept as separate provider classes for clarity and to
+allow independent evolution (different defaults, auth, endpoints).
+
+### Trust boundaries
+
+The trust model is identical across all three live providers:
+- Provider output remains **candidate notes only**.
+- Provider output does not create findings.
+- Provider output does not affect scoring.
+- Provider output does not change ScanResult.
+- Overlap suppression and observation refinement continue to apply.
+- ReviewTrace remains internal only.
+- No provider has special-case authority.
+
+### Fallback and error handling
+
+All provider failures degrade gracefully:
+- Missing API key → ``DisabledProvider`` fallback at config resolution.
+- Any error during ``reason()`` → empty ``ReasoningResponse``.
+- Network, timeout, HTTP error, malformed response → logged warning,
+  empty response.
+- Reviewer execution is never blocked by provider failure.
+
+### What changed
+
+- ``reviewer/providers.py``: added ``AnthropicProvider`` and
+  ``OpenAIProvider`` classes.
+- ``reviewer/provider_config.py``: added ``_resolve_anthropic()`` and
+  ``_resolve_openai()`` resolution functions; extended ``resolve_provider()``
+  to support ``anthropic`` and ``openai`` values.
+- ``tests/test_anthropic_provider.py``: 47 new focused tests.
+- ``tests/test_openai_provider.py``: 46 new focused tests.
+- ``README.md``: updated configuration documentation with all providers.
+
+### What did not change
+
+- ScanResult JSON contract: unchanged.
+- risk_score and decision: derived from deterministic findings only.
+- Deterministic checks: unaffected.
+- Scoring: unchanged.
+- Markdown output: unchanged.
+- GitHubModelsProvider: unchanged.
+- DisabledProvider and MockProvider: unchanged.
+- Provider gate (ADR-029): unchanged — applies to all providers.
+- Observation refinement (ADR-028): unchanged — applies to all providers.
+- ReviewTrace (ADR-030): unchanged — captures whatever provider is used.
+
+### Tests
+
+- 47 new focused tests for AnthropicProvider covering: interface conformance,
+  availability checks, API call formatting, response parsing, graceful
+  failure (network, timeout, HTTP error, malformed response), config
+  resolution, pipeline integration, scoring independence, ScanResult
+  contract stability, and provider compatibility.
+- 46 new focused tests for OpenAIProvider covering the same categories
+  plus base URL override and trust boundary verification.
+- All 937 tests pass (844 original + 93 new).
+
+### Consequences
+
+- Teams can choose between GitHub Models, Anthropic, and OpenAI for
+  reasoning without code changes — config-driven selection.
+- Trust model remains identical — no provider has elevated authority.
+- Provider quality comparison remains future work.
+- The abstraction supports future providers with minimal changes.
+
+### Deferred concerns
+
+- **Provider-specific prompt tuning** may be needed later — the shared
+  system prompt works across providers but may benefit from per-provider
+  adaptation as quality data is gathered.
+- **Provider quality comparison** remains future work — there is no
+  mechanism yet to compare quality/cost/latency across providers.
+- **Cost controls, rate limits, and caching** remain deferred — no
+  provider-level resource management exists yet.
+- **Provider-backed findings remain deferred** — provider output is
+  candidate notes only.  Promoting to findings requires trust calibration.
+- **Provider selection is config-based, not policy-aware** — there is no
+  policy engine for provider routing.  Selection is explicit per-deployment.
+- **Provider-specific error codes** are not handled distinctly — all errors
+  are treated uniformly as fallback-to-empty.
