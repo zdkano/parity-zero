@@ -252,6 +252,23 @@ is additive — it enriches or supplements, never replaces.
 
 ---
 
+### 6f. Review Trace (ADR-030)
+
+Internal traceability record assembled during each reviewer run.  Captures
+key pipeline signals including: plan focus areas, bundle stats, concern and
+observation counts, provider gate decisions and reasons, provider invocation
+outcome, note suppression counts, and observation refinement status.
+
+The trace is carried in ``ReasoningResult.trace`` and ``AnalysisResult.trace``.
+It is **internal only** — it does not appear in the ScanResult JSON contract,
+markdown output, ingestion payloads, or scoring.
+
+Phase 1 status: lightweight dataclass with descriptive entries.  No
+persistence, export, or API exposure yet.  Future control-plane or
+analytics surfaces may consume trace data.
+
+---
+
 ### 7. Memory / Context Store
 Persistent storage for review context that accumulates over time.
 

@@ -1250,3 +1250,100 @@ derived from existing pipeline structures — no new data sources.
   is trusted.
 - **Gate result is not yet surfaced in markdown output** — this may be
   useful for transparency but is deferred to avoid output noise.
+
+---
+
+## ADR-030: ReviewTrace — internal reviewer traceability
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+
+Introduce a lightweight ``ReviewTrace`` dataclass that captures why the
+reviewer behaved the way it did during a run.  The trace is assembled
+as part of the reviewer pipeline and is accessible internally from
+``ReasoningResult`` and ``AnalysisResult``.
+
+The trace is **internal only**.  It does not appear in:
+- ``ScanResult`` JSON contract
+- ingestion payloads
+- risk scoring or decision derivation
+- markdown output
+
+### Components
+
+1. **``ReviewTrace``** — dataclass in ``reviewer/models.py`` with fields:
+   - ``provider_attempted``: whether provider reasoning was attempted
+   - ``provider_gate_decision``: gate outcome (invoked / skipped / disabled / unavailable)
+   - ``provider_gate_reasons``: explainable reasons from gating
+   - ``provider_name``: name of the provider used
+   - ``active_focus_areas``: focus areas from ReviewPlan
+   - ``bundle_item_count``: number of bundle items
+   - ``bundle_high_focus_count``: items with elevated review focus
+   - ``concern_count``: number of concerns generated
+   - ``observation_count``: number of observations generated
+   - ``provider_notes_returned``: raw notes from provider
+   - ``provider_notes_suppressed``: notes removed by overlap filtering
+   - ``provider_notes_kept``: notes retained after suppression
+   - ``observation_refinement_applied``: whether provider refinement ran
+   - ``entries``: ordered descriptive entries documenting decisions
+
+2. **Integration in ``run_reasoning()``** — trace is assembled as each
+   pipeline step executes: plan loading, bundle assembly, concern and
+   observation generation, provider gating, provider invocation, overlap
+   suppression, and observation refinement.
+
+3. **Threading to ``AnalysisResult``** — the ``trace`` field is propagated
+   from ``ReasoningResult`` through ``engine.analyse()`` to
+   ``AnalysisResult``.
+
+### What changed
+
+- ``reviewer/models.py``: added ``ReviewTrace`` dataclass.
+- ``reviewer/reasoning.py``: trace assembled during ``run_reasoning()``
+  and included in ``ReasoningResult``.
+- ``reviewer/engine.py``: ``AnalysisResult`` gains ``trace`` field,
+  populated from ``ReasoningResult.trace``.
+- 37 new focused tests in ``tests/test_trace.py``.
+
+### What did not change
+
+- ScanResult JSON contract: unchanged — trace is internal only.
+- risk_score and decision: derived from deterministic findings only.
+- Deterministic checks: unaffected.
+- Scoring: unchanged.
+- Markdown output: unchanged.
+- Provider behavior: unchanged — trace is observational, not prescriptive.
+- ``action.py`` output: trace is not serialised to stdout or PR comments.
+
+### Consequences
+
+- Future contributors can inspect the trace to understand why the reviewer
+  behaved a certain way during a run.
+- Debugging and tuning are easier because key pipeline signals are captured.
+- Control-plane design can consume trace data when that surface is built.
+- Trust calibration is supported by explicit gate decision visibility.
+
+### Tests
+
+- 37 new focused tests covering: trace generation in normal flow, provider
+  gate decision visibility, disabled provider visibility, provider invocation
+  visibility, suppression/refinement visibility, no trace leak into ScanResult
+  JSON contract, ReviewTrace model defaults, and engine-level integration.
+- All 844 tests pass (807 original + 37 new).
+
+### Deferred concerns
+
+- **Trace is internal-only for now** — no persistence, export, or API
+  exposure.  Future control-plane or analytics surfaces may consume parts
+  of the trace.
+- **Current trace is intentionally lightweight** — it is not a full
+  telemetry or observability framework.  Fields may be added as the pipeline
+  grows, but the model should remain small and explicit.
+- **No markdown rendering of trace** — the trace is not shown in PR
+  comments.  Future phases may optionally surface trace summaries for
+  transparency.
+- **No structured trace schema yet** — the trace is a plain dataclass,
+  not a Pydantic model.  If trace data is later persisted or exported,
+  a schema may be defined.
