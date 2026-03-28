@@ -526,11 +526,13 @@ class TestMockRun:
         assert isinstance(parsed["risk_score"], int)
 
     def test_findings_cover_multiple_severities(self):
+        """mock_run() is designed to produce diverse findings for demo output."""
         output = mock_run()
         severities = {f.severity for f in output["result"].findings}
         assert len(severities) >= 2
 
     def test_findings_cover_multiple_categories(self):
+        """mock_run() is designed to produce diverse findings for demo output."""
         output = mock_run()
         categories = {f.category for f in output["result"].findings}
         assert len(categories) >= 2

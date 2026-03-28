@@ -25,7 +25,7 @@ _DECISION_BADGES: dict[Decision, str] = {
 
 def _risk_bar(score: int) -> str:
     """Return a compact text bar representing the risk score (0–100)."""
-    filled = score // 10
+    filled = round(score / 10)
     empty = 10 - filled
     return f"`[{'█' * filled}{'░' * empty}]` **{score}/100**"
 
