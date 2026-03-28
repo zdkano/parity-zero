@@ -748,3 +748,110 @@ security review observation tied to a specific changed file.
 - Observation aggregation across PRs (control plane feature, Phase 2+)
 - Adding observations to the JSON contract (if downstream consumers need them)
 - Richer observation templates using diff hunks or symbol-level context
+
+---
+
+## ADR-025: Provider-agnostic reasoning runtime boundary
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Context
+The parity-zero reviewer has established a structured pipeline: PullRequestContext →
+ReviewPlan → ReviewBundle → concerns → observations → deterministic findings.  The next
+step toward real semantic review is enabling provider-backed reasoning (GitHub Models,
+external LLMs) without requiring live integration or credentials for default operation.
+
+The pipeline needs a clean boundary between the reviewer's structured context and
+external reasoning providers.
+
+### Decision
+Introduce a provider-agnostic reasoning runtime boundary with:
+
+1. **`ReasoningProvider`** — an abstract interface that reasoning backends implement.
+   It accepts a structured `ReasoningRequest` and returns a `ReasoningResponse`.
+2. **`ReasoningRequest`** — structured input assembled from pipeline context (plan,
+   bundle, baseline, memory, deterministic findings).  This is not a raw prompt string —
+   it is structured data that provider adapters can format according to their conventions.
+3. **`ReasoningResponse`** — structured output carrying candidate notes and (future)
+   candidate findings.  Provider output is treated as *candidate* material — the pipeline
+   decides what to trust and surface.
+4. **`DisabledProvider`** — no-op default provider.  Returns empty response.  Current
+   heuristic-based flow runs unchanged.
+5. **`MockProvider`** — predictable provider for testing and local development.  Returns
+   structured notes reflecting request context without generating findings.
+6. **`build_reasoning_request()`** — canonical prompt/input builder that assembles a
+   `ReasoningRequest` from the pipeline context.  This is a first-class part of the
+   reviewer pipeline.
+
+The engine accepts an optional `provider` parameter.  When no provider is supplied or
+the provider is disabled, the pipeline behaves exactly as before.
+
+### Rationale
+- **No live credentials for tests or default flow.** DisabledProvider preserves existing
+  behavior.  MockProvider enables pipeline testing without external dependencies.
+- **Structured input over raw prompts.** ReasoningRequest carries typed context slices
+  rather than a freeform prompt string.  Provider adapters can format as they wish.
+- **Candidate output, not trusted findings.** Provider output is explicitly candidate
+  material.  Trust calibration (when provider findings can become real findings) is a
+  separate design dimension deferred to later phases.
+- **Minimal interface.** ReasoningProvider has three methods: `reason()`,
+  `is_available()`, `name`.  No plugin framework, no configuration system, no
+  registry abstraction.
+- **Pipeline preservation.** The existing heuristic path (plan-driven notes, concerns,
+  observations, deterministic checks) runs unchanged.  Provider output is additive.
+
+### What is implemented
+- `ReasoningProvider` abstract base in `reviewer/providers.py` with `reason()`,
+  `is_available()`, and `name` methods
+- `ReasoningRequest` and `ReasoningResponse` data models in `reviewer/providers.py`
+- `DisabledProvider` and `MockProvider` implementations in `reviewer/providers.py`
+- `build_reasoning_request()` in `reviewer/prompt_builder.py` — assembles structured
+  input from PullRequestContext, ReviewPlan, ReviewBundle, concerns, observations, and
+  deterministic findings
+- `run_reasoning()` updated to accept optional `provider` and `deterministic_findings`
+  parameters — assembles a reasoning request and integrates provider output when provider
+  is available
+- `analyse()` updated to accept optional `provider` parameter and pass deterministic
+  findings as context to the reasoning layer
+- `ReasoningResult` extended with `reasoning_request` and `provider_name` fields for
+  debugging and testing
+- 103 new tests covering providers, prompt builder, and integration
+
+### Key design choices
+- **Provider output does not produce findings in Phase 1.** MockProvider generates notes
+  only; DisabledProvider generates nothing.  Provider-backed findings require trust
+  calibration first.
+- **Reasoning request is structured, not string-formatted.** Future provider adapters
+  will format the request according to their own conventions.
+- **Prompt builder is a first-class pipeline component.** It has its own module, tests,
+  and explicit inputs rather than being embedded in provider code.
+- **No scoring impact from provider output.** Risk score and decision remain derived
+  from deterministic findings only.
+- **ScanResult JSON contract unchanged.** No new fields leak into the structured output.
+- **Backward compatible.** All existing callers continue to work without changes.
+
+### Consequences
+- The reviewer pipeline now has a clean integration point for future provider-backed
+  reasoning (GitHub Models, external LLMs)
+- Tests can exercise the full pipeline with MockProvider without any credentials
+- The prompt builder makes the reasoning input structure explicit and testable
+- Provider integration can be added incrementally by implementing ReasoningProvider
+- The JSON contract is unchanged
+- Risk scoring is unchanged
+
+### Deferred concerns
+- Live provider integration (GitHub Models, external LLMs) — requires credentials,
+  rate limiting, error handling, and response parsing
+- Prompt quality optimisation — current request structure is functional but not
+  tuned for any specific provider
+- Provider output trust calibration — when can provider-generated candidate findings
+  become real findings?  This is an explicit design dimension for later phases
+- Provider-backed candidate concerns or richer observations — future providers may
+  enrich concern/observation quality beyond current heuristics
+- Provider-backed reasoning should remain constrained by repo-aware context, not
+  generic freeform prompting
+- Provider selection and configuration — later phases may need provider selection
+  based on org/repo preferences
+- Rate limiting and cost management for live providers
+- Caching and deduplication for repeated reasoning requests
