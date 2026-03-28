@@ -243,6 +243,9 @@ def run() -> None:
     elif context["pr_number"] > 0:
         logger.info("PR comment not posted (token may lack permissions or not in PR context).")
 
+    # Optionally send results to the backend ingest API
+    _send_to_backend(result)
+
 
 def mock_run() -> dict:
     """Execute a mock reviewer workflow through the real engine.
@@ -331,6 +334,65 @@ def mock_run() -> dict:
         "observations": analysis.observations,
         "provider_notes": analysis.provider_notes,
     }
+
+
+def _send_to_backend(result: ScanResult) -> bool:
+    """Optionally POST the ScanResult to the backend ingest API.
+
+    Reads ``PARITY_ZERO_API_URL`` and ``PARITY_ZERO_API_TOKEN`` from the
+    environment.  If either is absent, ingest is silently skipped.
+
+    On failure, logs a warning but never crashes the action — the reviewer
+    run is considered successful regardless of backend availability.
+
+    Returns:
+        True if the result was successfully sent, False otherwise.
+    """
+    api_url = os.getenv("PARITY_ZERO_API_URL", "").rstrip("/")
+    api_token = os.getenv("PARITY_ZERO_API_TOKEN", "")
+
+    if not api_url:
+        logger.info("PARITY_ZERO_API_URL not set; skipping backend ingest.")
+        return False
+
+    if not api_token:
+        logger.warning("PARITY_ZERO_API_TOKEN not set; skipping backend ingest.")
+        return False
+
+    ingest_url = f"{api_url}/ingest"
+    payload = result.model_dump_json()
+
+    req = urllib.request.Request(
+        ingest_url,
+        data=payload.encode("utf-8"),
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_token}",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            status_code = resp.getcode()
+            body = resp.read().decode("utf-8", errors="replace")
+        logger.info(
+            "Backend ingest succeeded (HTTP %d): %s -> %s",
+            status_code, result.scan_id, ingest_url,
+        )
+        return True
+    except urllib.error.HTTPError as exc:
+        logger.warning(
+            "Backend ingest failed (HTTP %d): %s -> %s",
+            exc.code, result.scan_id, ingest_url,
+        )
+        return False
+    except (urllib.error.URLError, OSError) as exc:
+        logger.warning(
+            "Backend ingest failed (network error): %s -> %s: %s",
+            result.scan_id, ingest_url, exc,
+        )
+        return False
 
 
 if __name__ == "__main__":
