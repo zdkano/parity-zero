@@ -131,12 +131,14 @@ A provider-agnostic reasoning runtime boundary (ADR-025) allows optional
 provider-backed reasoning.  When a `ReasoningProvider` is supplied and
 available, the prompt builder assembles a structured `ReasoningRequest` from
 pipeline context and the provider's output is integrated as candidate notes.
-The default `DisabledProvider` preserves current behaviour — no live
-credentials required.
+Provider invocation is gated by context richness (ADR-029) — the provider
+is only called when the PR context is rich or security-relevant enough to
+justify it.  The default `DisabledProvider` preserves current behaviour — no
+live credentials required.
 
 ---
 
-### 6e. Reasoning Runtime Boundary (ADR-025, ADR-026)
+### 6e. Reasoning Runtime Boundary (ADR-025, ADR-026, ADR-029)
 A provider-agnostic interface for reasoning backends.
 
 Components:
@@ -150,6 +152,9 @@ Components:
   inference API (ADR-026).  Optional, disabled by default.
 - **Prompt builder** (`build_reasoning_request()`) — canonical input assembly
 - **Provider config** (`resolve_provider()`) — environment-based provider resolution
+- **Provider gate** (`evaluate_provider_gate()`) — lightweight context-richness
+  check that decides whether to invoke the provider (ADR-029).  Considers
+  sensitive paths, auth paths, focus areas, memory context, and bundle focus.
 
 The runtime boundary is intentionally minimal.  Provider output is *candidate*
 material — trust calibration for provider-generated findings is a separate
@@ -157,8 +162,9 @@ design dimension for later phases.
 
 Phase 1 status: DisabledProvider and MockProvider are implemented.
 GitHubModelsProvider is the first live provider (ADR-026), enabled via
-`PARITY_REASONING_PROVIDER=github-models` and `GITHUB_TOKEN`.  External
-LLM providers are deferred.
+`PARITY_REASONING_PROVIDER=github-models` and `GITHUB_TOKEN`.  Provider
+invocation is gated by context richness (ADR-029).  External LLM providers
+are deferred.
 
 ---
 

@@ -1138,3 +1138,115 @@ integrated into the reasoning pipeline in `reviewer/reasoning.py`:
   ReasoningProvider implementation, but only GitHub Models is available.
 - **Scoring remains deliberately independent from provider output** — no
   change to the scoring model or decision derivation.
+
+---
+
+## ADR-029: Provider invocation gating
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+
+Introduce a lightweight provider invocation gating mechanism that evaluates
+whether live provider reasoning should run based on context richness and
+security relevance signals from the ``ReviewPlan`` and ``ReviewBundle``.
+
+The gate sits between request assembly and ``provider.reason()`` in
+``run_reasoning()``.  When the gate decides to skip, provider reasoning is
+not invoked and the reviewer continues with the existing non-provider flow.
+
+### Components
+
+1. **``ProviderGateResult``** — frozen dataclass with ``should_invoke: bool``
+   and ``reasons: list[str]``.  Always populated regardless of decision
+   direction.
+
+2. **``evaluate_provider_gate(plan, bundle)``** — pure function that examines
+   plan and bundle signals to produce a ``ProviderGateResult``.  Located in
+   ``reviewer/provider_gate.py``.
+
+3. **Integration in ``run_reasoning()``** — gate is evaluated after bundle
+   assembly but before ``provider.reason()``.  Only runs when provider is
+   available (``provider.is_available() is True``).  ``DisabledProvider``
+   short-circuits before gating.
+
+### Signals that drive invocation
+
+The gate considers:
+- Whether sensitive paths are touched (from ``plan.sensitive_paths_touched``)
+- Whether auth-related paths are touched (from ``plan.auth_paths_touched``)
+- Whether meaningful focus areas exist (from ``plan.focus_areas``)
+- Whether relevant memory categories are present (from ``plan.relevant_memory_categories``)
+- Whether the ``ReviewBundle`` contains items with elevated review focus
+  (``bundle.has_high_focus_items``)
+
+At least one positive signal is required for invocation.  All signals are
+derived from existing pipeline structures — no new data sources.
+
+### Gating policy
+
+- **Invoke when:** at least one meaningful context signal is present
+  (sensitive paths, auth paths, focus areas, memory overlap, high-focus
+  bundle items).
+- **Skip when:** no meaningful signals — context is trivial or low-value
+  for provider reasoning.
+- **Disabled provider:** gate is never evaluated; ``DisabledProvider``
+  short-circuits via ``is_available() is False``.
+- **No plan (legacy path):** gate returns skip with explicit reason.
+
+### What changed
+
+- ``reviewer/provider_gate.py`` added with ``ProviderGateResult`` and
+  ``evaluate_provider_gate()``.
+- ``reviewer/reasoning.py`` updated: gate evaluated before
+  ``provider.reason()``; result recorded in ``ReasoningResult.provider_gate_result``.
+- ``ReasoningResult`` gains ``provider_gate_result: ProviderGateResult | None``
+  field (internal only, not in JSON contract).
+- Existing tests updated: tests that verify provider output flow now use
+  security-relevant file paths to pass the gate.
+- 45 new focused tests in ``tests/test_provider_gate.py``.
+
+### What did not change
+
+- ScanResult JSON contract: unchanged — gate result is internal only.
+- risk_score and decision: derived from deterministic findings only.
+- Deterministic checks: unaffected.
+- DisabledProvider behavior: preserved exactly — gate never runs.
+- Provider output trust model: unchanged — output remains non-authoritative.
+- Scoring: unchanged.
+- Existing non-provider flow: unchanged when gate skips.
+- MockProvider and GitHubModelsProvider implementations: unchanged.
+
+### Consequences
+
+- Provider reasoning now only runs when the PR context justifies it.
+- Cost and runtime are reduced for trivial PRs.
+- Signal quality improves because provider is not invoked on low-value context.
+- Gating decisions are explainable via ``ProviderGateResult.reasons``.
+- The gate is intentionally simple — a heuristic, not a scoring engine.
+
+### Tests
+
+- 45 new focused tests covering: invoke cases (sensitive, auth, focus areas,
+  memory, bundle), skip cases (trivial, empty plan, weak context), reason
+  stability, disabled provider behavior, no scoring changes, JSON contract
+  stability, pipeline stability (invoke and skip paths), gate integration
+  with ``run_reasoning()``, and provider.reason() call verification.
+- All 807 tests pass (762 original + 45 new).
+
+### Deferred concerns
+
+- **Current gating remains heuristic and temporary** — the signals and
+  threshold are intentionally simple.  Future iterations may refine based
+  on live usage data.
+- **Future gating may include repo criticality, diff size, policy mode,
+  or richer bundle features** — these are not available or needed in Phase 1.
+- **Current invocation policy is not yet cost-optimized for all repo types**
+  — gating prevents invocation on trivial context but does not yet consider
+  API cost budgets, rate limits, or per-repo policy.
+- **Provider output remains non-authoritative regardless of invocation
+  decision** — gating controls when the provider runs, not how its output
+  is trusted.
+- **Gate result is not yet surfaced in markdown output** — this may be
+  useful for transparency but is deferred to avoid output noise.

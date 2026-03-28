@@ -153,7 +153,7 @@ class TestMockProviderIntegration:
     """Verify that MockProvider output flows through the pipeline."""
 
     def test_mock_provider_adds_notes(self):
-        ctx = _make_ctx(files={"app.py": "print('hello')"})
+        ctx = _make_ctx(files={"src/auth/login.py": "auth code"})
         result = analyse(ctx, provider=MockProvider())
         mock_notes = [n for n in result.reasoning_notes if "[mock-reasoning]" in n]
         assert len(mock_notes) > 0
@@ -250,7 +250,7 @@ class TestReasoningRequestAssembly:
 
     def test_provider_name_recorded_when_mock(self):
         from reviewer.planner import build_review_plan
-        ctx = _make_ctx(files={"app.py": "code"})
+        ctx = _make_ctx(files={"src/auth/login.py": "auth code"})
         plan = build_review_plan(ctx)
         result = run_reasoning(ctx, plan=plan, provider=MockProvider())
         assert result.provider_name == "mock"
@@ -436,7 +436,7 @@ class TestFallbackBehavior:
         assert isinstance(result, AnalysisResult)
 
     def test_legacy_dict_with_provider(self):
-        result = analyse({"app.py": "code"}, provider=MockProvider())
+        result = analyse({"src/auth/login.py": "auth code"}, provider=MockProvider())
         assert isinstance(result, AnalysisResult)
         mock_notes = [n for n in result.reasoning_notes if "[mock-reasoning]" in n]
         assert len(mock_notes) > 0

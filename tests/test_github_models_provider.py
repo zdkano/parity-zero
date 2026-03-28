@@ -520,7 +520,7 @@ class TestPipelineIntegration:
             '["Security note from GitHub Models"]'
         )
         provider = GitHubModelsProvider(token="test-token")
-        ctx = _make_ctx(files={"app.py": "print('hello')"})
+        ctx = _make_ctx(files={"src/auth/login.py": "auth code"})
         result = analyse(ctx, provider=provider)
 
         assert isinstance(result, AnalysisResult)
