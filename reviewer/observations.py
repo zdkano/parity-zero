@@ -18,11 +18,26 @@ Observation generation rules (Phase 1, heuristic-based):
   - **Plain changed file with no meaningful signals** → no observation
     (noise control).
 
+Provider-backed observation refinement (ADR-028):
+
+  When provider ``CandidateNote`` output is available, observations may be
+  enriched or supplemented:
+
+  - **Enrichment** — a provider note that targets the same file as an
+    existing observation may add concise detail to that observation's summary.
+  - **Supplementary observations** — a provider note that targets a specific
+    file not already covered by an observation may generate a new observation
+    with basis ``provider_refinement``.
+
+  Provider-backed observations remain non-finding, non-scoring, and use
+  hedged language (``may``, ``worth verifying``).
+
 Observations are **not findings**.  They do not claim vulnerabilities,
 affect scoring, or appear in the JSON contract.  They are internal
 and markdown-visible only.
 
-See ADR-024 for the decision record.
+See ADR-024 for the initial decision record and ADR-028 for the
+provider-backed refinement decision.
 """
 
 from __future__ import annotations
@@ -32,6 +47,7 @@ from reviewer.models import (
     ReviewBundleItem,
     ReviewObservation,
 )
+from reviewer.providers import CandidateNote
 
 # Maximum number of observations to generate per bundle.
 _MAX_OBSERVATIONS = 10
@@ -238,6 +254,204 @@ def _memory_alignment_observation(item: ReviewBundleItem) -> ReviewObservation:
         basis="memory_alignment",
         related_paths=item.related_paths[:_MAX_RELATED_PATHS],
     )
+
+
+# ======================================================================
+# Provider-backed observation refinement (ADR-028)
+# ======================================================================
+
+# Maximum characters of provider detail appended during enrichment.
+_MAX_ENRICHMENT_CHARS = 200
+
+# Maximum supplementary observations from provider notes.
+_MAX_SUPPLEMENTARY = 3
+
+# Keyword overlap threshold for matching a note to an observation.
+_MATCH_KEYWORD_THRESHOLD = 0.35
+
+# Stopwords excluded from keyword extraction (shared with reasoning.py).
+_STOPWORDS = frozenset({
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "shall", "can", "this", "that", "these",
+    "those", "it", "its", "of", "in", "to", "for", "with", "on", "at",
+    "by", "from", "as", "or", "and", "but", "not", "no", "if", "so",
+    "than", "too", "very", "just", "about", "into", "over", "after",
+})
+
+
+def refine_observations(
+    observations: list[ReviewObservation],
+    provider_notes: list[CandidateNote],
+) -> list[ReviewObservation]:
+    """Refine observations using provider-backed candidate notes (ADR-028).
+
+    Provider notes may enrich existing observations or generate
+    supplementary observations for files not already covered.
+
+    Trust boundaries:
+    - Observations remain non-finding and non-scoring.
+    - Enrichment appends hedged provider detail; it does not replace
+      the original observation text.
+    - Supplementary observations use ``basis="provider_refinement"``
+      and hedged language.
+    - Total observations are capped at ``_MAX_OBSERVATIONS``.
+
+    Args:
+        observations: Existing deterministic observations.
+        provider_notes: Normalized candidate notes from the provider,
+            already after overlap suppression.
+
+    Returns:
+        A refined list of ReviewObservation instances.
+    """
+    if not provider_notes:
+        return observations
+
+    # Build a lookup of observation paths for matching.
+    obs_by_path: dict[str, list[int]] = {}
+    for idx, obs in enumerate(observations):
+        if obs.path:
+            obs_by_path.setdefault(obs.path, []).append(idx)
+
+    # Track which notes are consumed by enrichment.
+    used_note_indices: set[int] = set()
+
+    # Work on a copy to avoid mutating originals.
+    refined = [
+        ReviewObservation(
+            path=o.path,
+            focus_area=o.focus_area,
+            title=o.title,
+            summary=o.summary,
+            confidence=o.confidence,
+            basis=o.basis,
+            related_paths=list(o.related_paths),
+        )
+        for o in observations
+    ]
+
+    # -- Phase 1: Enrich existing observations with matching notes --
+    for note_idx, note in enumerate(provider_notes):
+        if not note.summary:
+            continue
+        match_idx = _find_matching_observation(note, refined, obs_by_path)
+        if match_idx is not None:
+            _enrich_observation(refined[match_idx], note)
+            used_note_indices.add(note_idx)
+
+    # -- Phase 2: Create supplementary observations from unmatched notes --
+    covered_paths = {o.path for o in refined if o.path}
+    supplementary_count = 0
+
+    for note_idx, note in enumerate(provider_notes):
+        if note_idx in used_note_indices:
+            continue
+        if supplementary_count >= _MAX_SUPPLEMENTARY:
+            break
+        if len(refined) >= _MAX_OBSERVATIONS:
+            break
+        # Only create supplementary for notes targeting specific files.
+        target_paths = [p for p in note.related_paths if p and p not in covered_paths]
+        if not target_paths:
+            continue
+        if not note.summary or len(note.summary.strip()) < 15:
+            continue
+        obs = _supplementary_observation(note, target_paths[0])
+        refined.append(obs)
+        covered_paths.add(obs.path)
+        supplementary_count += 1
+
+    return refined[:_MAX_OBSERVATIONS]
+
+
+def _find_matching_observation(
+    note: CandidateNote,
+    observations: list[ReviewObservation],
+    obs_by_path: dict[str, list[int]],
+) -> int | None:
+    """Find the best matching observation for a provider note.
+
+    Matches by path overlap first, then by keyword similarity.
+    Returns the index of the best match, or None.
+    """
+    # Try path-based match first.
+    for path in note.related_paths:
+        if path in obs_by_path:
+            return obs_by_path[path][0]
+
+    # Fall back to keyword similarity.
+    note_keywords = _extract_keywords(note.title) | _extract_keywords(note.summary)
+    if not note_keywords:
+        return None
+
+    best_idx: int | None = None
+    best_ratio = 0.0
+
+    for idx, obs in enumerate(observations):
+        obs_keywords = _extract_keywords(obs.title) | _extract_keywords(obs.summary)
+        if not obs_keywords:
+            continue
+        overlap = note_keywords & obs_keywords
+        ratio = len(overlap) / len(note_keywords)
+        if ratio > best_ratio and ratio >= _MATCH_KEYWORD_THRESHOLD:
+            best_ratio = ratio
+            best_idx = idx
+
+    return best_idx
+
+
+def _enrich_observation(obs: ReviewObservation, note: CandidateNote) -> None:
+    """Enrich an observation's summary with provider note detail.
+
+    Appends a hedged, capped addendum to the existing summary.
+    Does not replace the original text.  Marks the basis as enriched.
+    """
+    detail = note.summary.strip()
+    if len(detail) > _MAX_ENRICHMENT_CHARS:
+        detail = detail[:_MAX_ENRICHMENT_CHARS].rsplit(" ", 1)[0] + "…"
+
+    obs.summary = (
+        f"{obs.summary} Additionally, provider analysis suggests: {detail}"
+    )
+    if "provider_enriched" not in obs.basis:
+        obs.basis = f"{obs.basis}+provider_enriched"
+
+
+def _supplementary_observation(
+    note: CandidateNote,
+    target_path: str,
+) -> ReviewObservation:
+    """Create a supplementary observation from an unmatched provider note.
+
+    Uses hedged language and clearly marks the basis as provider-derived.
+    """
+    summary = note.summary.strip()
+    if len(summary) > _MAX_ENRICHMENT_CHARS:
+        summary = summary[:_MAX_ENRICHMENT_CHARS].rsplit(" ", 1)[0] + "…"
+
+    title = note.title.strip() if note.title else "Provider-noted area of interest"
+    confidence = note.confidence if note.confidence in ("low", "medium") else "low"
+
+    return ReviewObservation(
+        path=target_path,
+        focus_area="",
+        title=title,
+        summary=(
+            f"`{target_path}` may warrant attention: {summary}"
+        ),
+        confidence=confidence,
+        basis="provider_refinement",
+        related_paths=[p for p in note.related_paths if p != target_path][:_MAX_RELATED_PATHS],
+    )
+
+
+def _extract_keywords(text: str) -> set[str]:
+    """Extract meaningful lowercase keywords from text."""
+    if not text:
+        return set()
+    words = set(text.lower().split())
+    return {w.strip(".,;:!?\"'`()[]{}") for w in words if len(w) > 2} - _STOPWORDS
 
 
 # ======================================================================

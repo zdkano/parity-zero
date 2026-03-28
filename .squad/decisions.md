@@ -1041,3 +1041,100 @@ Improve the provider-backed reasoning path in a single quality pass:
   provider trust model matures.
 - **Selective provider invocation** — calling the provider only for high-focus
   files would reduce cost and noise.  Deferred to later iterations.
+
+---
+
+## ADR-028: Provider-backed observation refinement
+
+**Date:** 2026-03-28
+
+**Status:** Accepted
+
+**Context:**
+
+ADR-024 introduced ReviewObservation as per-file security review analysis notes
+derived from ReviewBundle items.  ADR-025/026/027 established the provider-agnostic
+reasoning interface, the GitHub Models provider, and the provider output quality
+pass.  Provider output currently flows as CandidateNote objects shown in a
+separate "Additional Review Notes" section — distinct from observations.
+
+The next step is to use provider reasoning to make ReviewObservations more
+semantically useful and security-engineer-like, without changing the trust model
+or scoring behavior.
+
+**Decision:**
+
+Implement provider-backed observation refinement in `reviewer/observations.py`,
+integrated into the reasoning pipeline in `reviewer/reasoning.py`:
+
+1. **Enrichment** — when a provider CandidateNote targets the same file as an
+   existing observation (path match) or shares significant keyword overlap
+   (≥35% threshold), the observation's summary is augmented with hedged
+   provider detail (capped at 200 chars).  The observation's basis is marked
+   with `+provider_enriched`.  The original observation text is preserved;
+   enrichment appends rather than replaces.
+
+2. **Supplementary observations** — provider notes that target specific files
+   not already covered by an existing observation may generate new observations
+   with `basis="provider_refinement"`.  Supplementary observations use hedged
+   language ("may warrant attention") and are capped at 3 per refinement pass.
+
+3. **Pipeline integration** — refinement runs after overlap suppression and
+   before the final ReasoningResult is returned.  Flow:
+   generate_observations → provider call → overlap suppression → refine_observations.
+
+4. **Caps** — total observations remain capped at 10 (`_MAX_OBSERVATIONS`).
+   Supplementary observations are capped at 3 (`_MAX_SUPPLEMENTARY`).
+   Enrichment detail is capped at 200 characters (`_MAX_ENRICHMENT_CHARS`).
+
+5. **Trust boundaries preserved:**
+   - Observations remain non-finding and non-scoring.
+   - Provider output does not create findings.
+   - ScanResult JSON contract unchanged.
+   - risk_score and decision unchanged.
+   - DisabledProvider and MockProvider behavior preserved.
+   - Enrichment and supplementary observations use hedged language.
+
+**What did not change:**
+
+- ScanResult JSON contract: unchanged — observations are markdown-only.
+- risk_score and decision: derived from deterministic findings only.
+- Deterministic checks: unaffected.
+- DisabledProvider behavior: preserved exactly — no refinement occurs.
+- Existing observation generation: unchanged — refinement is additive.
+- CandidateNote rendering in markdown: still available as separate section.
+- Backward compatibility: all existing callers and tests work unchanged.
+
+**Consequences:**
+
+- ReviewObservations are now semantically richer when provider output is available.
+- Enriched observations carry provider-specific detail with hedged language.
+- Supplementary observations surface provider insights for files not otherwise
+  observed, increasing review coverage.
+- The refinement function (`refine_observations`) is pure and testable — it
+  takes observations + notes and returns refined observations.
+- Original observation objects are not mutated; refinement works on copies.
+
+**Tests:**
+
+- 45 new focused tests covering: refinement path (enrichment + supplementary),
+  scoring impact (none), no-overclaiming, dedup/overlap, disabled provider
+  behavior, JSON contract stability, and markdown output.
+- All 762 tests pass (717 original + 45 new).
+
+**Deferred concerns:**
+
+- **Provider-backed observations are still non-authoritative** — refinement
+  enriches observations but does not change their trust level.  Observations
+  remain markdown-only, non-scoring context.
+- **Provider-backed findings remain deferred** — provider output still cannot
+  create findings.  The trust model for promoting provider output is unchanged.
+- **Observation enrichment quality will need tuning** — the keyword match
+  threshold (35%), enrichment cap (200 chars), and supplementary cap (3) are
+  heuristic values that may need adjustment with live usage data.
+- **Selection/merging remains heuristic** — matching is path-based then
+  keyword-based.  Semantic similarity or embedding-based matching is deferred.
+- **External provider support still deferred** — refinement works with any
+  ReasoningProvider implementation, but only GitHub Models is available.
+- **Scoring remains deliberately independent from provider output** — no
+  change to the scoring model or decision derivation.

@@ -214,9 +214,10 @@ gathering is bounded and intentionally incomplete.
 
 ---
 
-### 6d. Review Observation Generator (ADR-024)
+### 6d. Review Observation Generator (ADR-024, ADR-028)
 A lightweight **per-file review observation** layer that produces targeted
-security analysis notes from `ReviewBundle` items.
+security analysis notes from `ReviewBundle` items, optionally enriched by
+provider-backed reasoning.
 
 Responsibilities:
 - translate per-file bundle evidence into reviewer-like observations
@@ -225,16 +226,23 @@ Responsibilities:
 - filter out noise: plain changed files with no meaningful signals produce
   no observations
 - bound output to avoid verbosity (max 10 observations per bundle)
+- **refine observations using provider output** (ADR-028): when provider
+  CandidateNotes are available, enrich matching observations with concise
+  provider detail and generate supplementary observations for files not
+  otherwise covered
 
 Observations are **distinct from concerns** (which are plan-level signals)
 and **distinct from findings** (which claim proven issues).  They are
 per-file, bundle-driven, and contextual.
 
 Observations are **internal and markdown-only** — they do not appear in the
-JSON contract or affect risk scoring.
+JSON contract or affect risk scoring.  Provider-backed enrichment preserves
+these boundaries — enriched observations use hedged language and are clearly
+marked with `+provider_enriched` in their basis.
 
 Phase 1 status: heuristic-based observation generation from bundle item
-signals.  No provider-backed reasoning or semantic analysis.
+signals, with optional provider-backed refinement (ADR-028).  Refinement
+is additive — it enriches or supplements, never replaces.
 
 ---
 
