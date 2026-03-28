@@ -855,3 +855,85 @@ the provider is disabled, the pipeline behaves exactly as before.
   based on org/repo preferences
 - Rate limiting and cost management for live providers
 - Caching and deduplication for repeated reasoning requests
+
+---
+
+## ADR-026: GitHub Models as first live reasoning provider
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+Implement `GitHubModelsProvider` as the first live reasoning provider, using the
+GitHub Models inference API (OpenAI-compatible chat completions endpoint).  The
+provider is optional, additive, and disabled by default.
+
+### Rationale
+- **GitHub-native.** GitHub Models is accessed via `GITHUB_TOKEN`, which is already
+  available in GitHub Actions.  No separate credential management needed.
+- **Phase-appropriate.** Adds live reasoning capability without changing the trust
+  model, scoring, or ScanResult contract.
+- **Safe by default.** Disabled unless explicitly configured via environment variable.
+  Missing credentials or provider failure degrade gracefully to the existing
+  heuristic-based flow.
+- **Additive.** Provider output flows through the existing `ReasoningProvider`
+  interface (ADR-025) as candidate notes only — it does not create findings,
+  alter scoring, or influence decisions.
+- **Minimal configuration.** Three environment variables: `PARITY_REASONING_PROVIDER`,
+  `PARITY_REASONING_MODEL`, and `GITHUB_TOKEN`.  No configuration framework.
+
+### What is implemented
+- `GitHubModelsProvider` class in `reviewer/providers.py` implementing the
+  `ReasoningProvider` interface
+- Prompt formatting from `ReasoningRequest` to system+user messages
+- Response parsing from model output to structured candidate notes
+- `reviewer/provider_config.py` — minimal environment-based provider resolution
+- `resolve_provider()` function wired into the GitHub Action entry point
+- 56 new tests covering provider interface, configuration, error handling,
+  pipeline integration, and contract stability
+
+### Key design choices
+- **Disabled by default.** `PARITY_REASONING_PROVIDER` defaults to `"disabled"`.
+  GitHub Models is enabled only when `PARITY_REASONING_PROVIDER=github-models`
+  and `GITHUB_TOKEN` is set.
+- **Provider output is candidate material only.** Notes from the provider are
+  integrated into the PR summary as contextual observations.  They do not
+  become findings, affect risk_score, or influence the decision.
+- **Graceful failure everywhere.** Network errors, timeouts, HTTP errors, and
+  invalid responses all result in an empty response — the reviewer pipeline
+  continues with its existing heuristic-based flow.
+- **No new dependencies.** Uses `httpx` which is already in `requirements.txt`.
+- **ScanResult JSON contract unchanged.** No provider-specific data leaks into
+  the structured output.
+- **Token passed as constructor argument.** The provider does not read
+  environment variables directly — `provider_config.py` handles resolution.
+
+### Trust boundary
+Provider output remains explicitly non-authoritative:
+- Candidate notes only — no candidate findings in Phase 1
+- Notes are clearly labelled as provider-generated in the pipeline
+- `is_from_live_provider=True` distinguishes live output from mock/disabled
+- No scoring impact: risk_score and decision derived from deterministic findings only
+
+### Consequences
+- The reviewer can now optionally use live LLM reasoning for contextual notes
+- GitHub Actions workflows can enable reasoning by setting two environment variables
+- All existing behavior is preserved when the provider is disabled (default)
+- Tests do not require live credentials — all HTTP interactions are mocked
+- The configuration approach is minimal and can be extended later
+
+### Deferred concerns
+- **External provider support** — non-GitHub providers (OpenAI direct, Anthropic,
+  etc.) are not yet supported.  The `ReasoningProvider` interface is ready for
+  them, but provider resolution and configuration are GitHub Models-only for now.
+- **Prompt tuning** — the system prompt and user prompt formatting are functional
+  but not optimised.  Iteration will be needed once live usage generates feedback.
+- **Provider-backed findings** — the trust model for promoting provider candidate
+  findings to real findings is unresolved.  Phase 1 produces notes only.
+- **Rate limits and token limits** — GitHub Models has rate limits and token
+  budgets.  The provider does not yet handle rate limiting, retry logic, or
+  prompt size constraints.
+- **Prompt sizing** — large PRs may exceed model context windows.  No truncation
+  or chunking strategy is implemented yet.
+- **Cost management** — no cost tracking or budget enforcement for API calls.
+- **Caching** — repeated reasoning requests for the same PR context are not cached.

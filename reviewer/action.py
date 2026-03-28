@@ -28,6 +28,7 @@ from schemas.findings import ScanResult
 from reviewer.engine import analyse, derive_decision_and_risk
 from reviewer.formatter import format_markdown
 from reviewer.models import PRContent
+from reviewer.provider_config import resolve_provider
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +183,8 @@ def run() -> None:
     file_contents = {fp: "" for fp in changed_files}
     pr_content = PRContent.from_dict(file_contents)
 
-    analysis = analyse(pr_content)
+    provider = resolve_provider()
+    analysis = analyse(pr_content, provider=provider)
 
     decision, risk_score = derive_decision_and_risk(analysis.findings)
 
