@@ -4,14 +4,15 @@ This module is invoked by the GitHub Actions workflow (.github/workflows/review.
 It orchestrates the full review flow:
 
   1. Read PR metadata and changed files from the GitHub event context.
-  2. Pass changed files to the analysis engine.
-  3. Collect structured findings into a ScanResult.
-  4. Format a markdown summary and post it as a PR comment / check output.
-  5. Optionally send the ScanResult to the central ingestion API.
+  2. Pass changed file contents to the analysis engine.
+  3. Derive decision and risk_score from the findings.
+  4. Collect structured findings into a ScanResult.
+  5. Format a markdown summary and post it as a PR comment / check output.
+  6. Optionally send the ScanResult to the central ingestion API.
 
 Phase 1 implementation parses real GitHub event context and discovers
-changed files via the GitHub API.  Detection logic will be added
-incrementally.
+changed files via the GitHub API.  The deterministic checks detect
+insecure configuration patterns in file contents.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ import urllib.error
 import urllib.request
 
 from schemas.findings import ScanResult
-from reviewer.engine import analyse
+from reviewer.engine import analyse, derive_decision_and_risk
 from reviewer.formatter import format_markdown
 
 logger = logging.getLogger(__name__)
@@ -173,14 +174,22 @@ def run() -> None:
     context = get_pr_context()
     changed_files = get_changed_files(context["repo"], context["pr_number"])
 
-    findings = analyse(changed_files)
+    # In a real workflow, read file contents from the workspace checkout.
+    # Phase 1 passes paths with empty content for files we cannot read.
+    file_contents = {fp: "" for fp in changed_files}
+
+    analysis = analyse(file_contents)
+
+    decision, risk_score = derive_decision_and_risk(analysis.findings)
 
     result = ScanResult(
         repo=context["repo"],
         pr_number=context["pr_number"],
         commit_sha=context["commit_sha"],
         ref=context["ref"],
-        findings=findings,
+        decision=decision,
+        risk_score=risk_score,
+        findings=analysis.findings,
     )
 
     # Emit structured JSON to stdout (core contract).
@@ -196,74 +205,68 @@ def run() -> None:
 
 
 def mock_run() -> dict:
-    """Execute a mock reviewer workflow with synthetic findings.
+    """Execute a mock reviewer workflow through the real engine.
 
-    This is used for testing and demonstration of the reviewer output
-    path without requiring real GitHub context or LLM reasoning.
+    Provides synthetic file contents containing insecure configuration
+    patterns and runs them through the full reviewer path:
+
+      mock file contents → engine → checks + reasoning → derive scoring
+      → ScanResult → markdown → JSON
 
     Returns a dict with ``result`` (ScanResult), ``markdown`` (str),
-    and ``json`` (str) keys.
+    ``json`` (str), and ``reasoning_notes`` (list[str]) keys.
     """
-    from schemas.findings import (
-        Category,
-        Confidence,
-        Decision,
-        Finding,
-        Severity,
-    )
+    # -- Mock PR context --
+    mock_context = {
+        "repo": "acme/webapp",
+        "pr_number": 42,
+        "commit_sha": "abc1234def5",
+        "ref": "feature/new-endpoint",
+    }
 
-    mock_findings = [
-        Finding(
-            category=Category.INPUT_VALIDATION,
-            severity=Severity.HIGH,
-            confidence=Confidence.HIGH,
-            title="SQL injection via unsanitised input",
-            description="User-supplied input flows into a raw SQL query without parameterisation.",
-            file="src/db/queries.py",
-            start_line=47,
-            end_line=52,
-            recommendation="Use parameterised queries or an ORM to avoid SQL injection.",
+    # -- Mock file contents with realistic insecure patterns --
+    mock_file_contents: dict[str, str] = {
+        "src/settings.py": (
+            "# Application settings\n"
+            "APP_NAME = 'webapp'\n"
+            "DEBUG = True\n"
+            "SECRET_KEY = 'change-me'\n"
         ),
-        Finding(
-            category=Category.SECRETS,
-            severity=Severity.HIGH,
-            confidence=Confidence.MEDIUM,
-            title="Hardcoded API key",
-            description="An API key is hardcoded in the source file.",
-            file="src/config.py",
-            start_line=12,
-            recommendation="Move secrets to environment variables or a secrets manager.",
+        "src/server.py": (
+            "from fastapi import FastAPI\n"
+            "from fastapi.middleware.cors import CORSMiddleware\n"
+            "\n"
+            "app = FastAPI()\n"
+            'app.add_middleware(CORSMiddleware, allow_origins=["*"])\n'
         ),
-        Finding(
-            category=Category.AUTHENTICATION,
-            severity=Severity.MEDIUM,
-            confidence=Confidence.MEDIUM,
-            title="Missing auth middleware on admin route",
-            description="The /admin endpoint does not enforce authentication.",
-            file="src/routes/admin.py",
-            start_line=8,
-            end_line=15,
-            recommendation="Add authentication middleware before the route handler.",
+        "src/config.py": (
+            "# HTTP client configuration\n"
+            "VERIFY_SSL = False\n"
+            "TIMEOUT = 30\n"
         ),
-        Finding(
-            category=Category.INSECURE_CONFIGURATION,
-            severity=Severity.LOW,
-            confidence=Confidence.LOW,
-            title="Debug mode enabled",
-            description="Debug mode is enabled in the production configuration.",
-            file="src/settings.py",
-            start_line=3,
+        "src/routes/admin.py": (
+            "from fastapi import APIRouter\n"
+            "\n"
+            "router = APIRouter()\n"
+            "\n"
+            "@router.get('/admin/dashboard')\n"
+            "async def dashboard():\n"
+            "    return {'status': 'ok'}\n"
         ),
-    ]
+    }
+
+    # -- Run through the real engine --
+    analysis = analyse(mock_file_contents)
+    decision, risk_score = derive_decision_and_risk(analysis.findings)
 
     result = ScanResult(
-        repo="acme/webapp",
-        pr_number=42,
-        commit_sha="abc1234def5",
-        ref="feature/new-endpoint",
-        decision=Decision.WARN,
-        risk_score=62,
-        findings=mock_findings,
+        repo=mock_context["repo"],
+        pr_number=mock_context["pr_number"],
+        commit_sha=mock_context["commit_sha"],
+        ref=mock_context["ref"],
+        decision=decision,
+        risk_score=risk_score,
+        findings=analysis.findings,
     )
 
     markdown = format_markdown(result)
@@ -273,6 +276,7 @@ def mock_run() -> dict:
         "result": result,
         "markdown": markdown,
         "json": json_output,
+        "reasoning_notes": analysis.reasoning_notes,
     }
 
 
