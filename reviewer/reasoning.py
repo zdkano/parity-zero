@@ -40,6 +40,7 @@ from dataclasses import dataclass, field
 from schemas.findings import Finding
 from reviewer.models import PullRequestContext, RepoSecurityProfile, ReviewBundle, ReviewConcern, ReviewMemory, ReviewObservation, ReviewPlan
 from reviewer.providers import CandidateNote, DisabledProvider, ReasoningProvider, ReasoningRequest
+from reviewer.provider_gate import ProviderGateResult, evaluate_provider_gate
 
 # Canonical path analysis helpers live in planner.py (ADR-021).
 # Re-exported here for backward compatibility with existing callers/tests.
@@ -88,6 +89,10 @@ class ReasoningResult:
             provider (if any).  Internal only — useful for debugging and
             testing the prompt assembly layer.  See ADR-025.
         provider_name: Name of the reasoning provider used (if any).
+        provider_gate_result: Result of provider invocation gating
+            (ADR-029).  Records whether the provider was invoked and
+            the reasons for the decision.  None when no plan is
+            available (legacy path) or provider is disabled.
     """
 
     findings: list[Finding] = field(default_factory=list)
@@ -98,6 +103,7 @@ class ReasoningResult:
     bundle: ReviewBundle | None = None
     reasoning_request: ReasoningRequest | None = None
     provider_name: str = ""
+    provider_gate_result: ProviderGateResult | None = None
 
 
 def run_reasoning(
@@ -120,9 +126,11 @@ def run_reasoning(
 
     When a ``ReasoningProvider`` is supplied and available (ADR-025),
     the assembled reasoning request is sent to the provider and its
-    candidate notes are integrated into the result.  When the provider
-    is disabled or unavailable, the current heuristic-based flow runs
-    unchanged.
+    candidate notes are integrated into the result.  Provider invocation
+    is gated by context richness (ADR-029) — the provider is only called
+    when the PR context is rich or security-relevant enough to justify it.
+    When the provider is disabled, unavailable, or gated out, the current
+    heuristic-based flow runs unchanged.
 
     Phase 1 behaviour:
     - produces contextual notes from the review plan or baseline overlap
@@ -172,6 +180,7 @@ def run_reasoning(
     bundle: ReviewBundle | None = None
     reasoning_request: ReasoningRequest | None = None
     provider_name: str = ""
+    gate_result: ProviderGateResult | None = None
 
     if plan is not None:
         _add_plan_notes(notes, plan)
@@ -189,21 +198,24 @@ def run_reasoning(
             deterministic_findings=deterministic_findings,
         )
 
+        # -- Provider invocation gating (ADR-029) --
         # -- Provider-backed reasoning (ADR-025, ADR-027) --
         if provider is not None and provider.is_available():
-            response = provider.reason(reasoning_request)
-            provider_name = response.provider_name
-            # Suppress notes that overlap with existing context (ADR-027).
-            provider_notes = _suppress_overlapping_notes(
-                response.structured_notes,
-                concerns=concerns,
-                observations=observations,
-                deterministic_findings=deterministic_findings,
-            )
-            # -- Provider-backed observation refinement (ADR-028) --
-            observations = refine_observations(observations, provider_notes)
-            if response.candidate_notes:
-                notes.extend(response.candidate_notes)
+            gate_result = evaluate_provider_gate(plan, bundle)
+            if gate_result.should_invoke:
+                response = provider.reason(reasoning_request)
+                provider_name = response.provider_name
+                # Suppress notes that overlap with existing context (ADR-027).
+                provider_notes = _suppress_overlapping_notes(
+                    response.structured_notes,
+                    concerns=concerns,
+                    observations=observations,
+                    deterministic_findings=deterministic_findings,
+                )
+                # -- Provider-backed observation refinement (ADR-028) --
+                observations = refine_observations(observations, provider_notes)
+                if response.candidate_notes:
+                    notes.extend(response.candidate_notes)
     else:
         # Legacy path: derive notes directly from context overlap
         changed_paths = ctx.pr_content.paths
@@ -218,6 +230,7 @@ def run_reasoning(
         bundle=bundle,
         reasoning_request=reasoning_request,
         provider_name=provider_name,
+        provider_gate_result=gate_result,
     )
 
 
