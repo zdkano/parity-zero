@@ -39,7 +39,7 @@ from schemas.findings import Decision, Finding, Severity
 from reviewer.checks import run_deterministic_checks
 from reviewer.models import PRContent, PullRequestContext, ReviewBundle, ReviewConcern, ReviewObservation
 from reviewer.planner import build_review_plan
-from reviewer.providers import DisabledProvider, ReasoningProvider
+from reviewer.providers import CandidateNote, DisabledProvider, ReasoningProvider
 from reviewer.reasoning import run_reasoning
 
 # Severity weights used for risk_score derivation.
@@ -68,6 +68,9 @@ class AnalysisResult:
             items.  Each observation explains why a specific file deserves
             scrutiny.  Distinct from concerns and findings; do not affect
             scoring.  See ADR-024.
+        provider_notes: Normalized candidate notes from reasoning provider,
+            after overlap suppression.  Markdown-only, do not affect
+            scoring.  See ADR-027.
         bundle: Structured review evidence from the review bundle builder.
             Internal only — does not appear in ScanResult or the JSON
             contract.  See ADR-023.
@@ -77,6 +80,7 @@ class AnalysisResult:
     reasoning_notes: list[str] = field(default_factory=list)
     concerns: list[ReviewConcern] = field(default_factory=list)
     observations: list[ReviewObservation] = field(default_factory=list)
+    provider_notes: list[CandidateNote] = field(default_factory=list)
     bundle: ReviewBundle | None = None
 
 
@@ -143,6 +147,7 @@ def analyse(
         reasoning_notes=reasoning_result.notes,
         concerns=reasoning_result.concerns,
         observations=reasoning_result.observations,
+        provider_notes=reasoning_result.provider_notes,
         bundle=reasoning_result.bundle,
     )
 

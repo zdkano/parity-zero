@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 
 from schemas.findings import Finding
 from reviewer.models import PullRequestContext, RepoSecurityProfile, ReviewBundle, ReviewConcern, ReviewMemory, ReviewObservation, ReviewPlan
-from reviewer.providers import DisabledProvider, ReasoningProvider, ReasoningRequest
+from reviewer.providers import CandidateNote, DisabledProvider, ReasoningProvider, ReasoningRequest
 
 # Canonical path analysis helpers live in planner.py (ADR-021).
 # Re-exported here for backward compatibility with existing callers/tests.
@@ -76,6 +76,10 @@ class ReasoningResult:
             items.  Each observation explains why a specific file deserves
             scrutiny.  Distinct from concerns (which are plan-level) and
             findings (which claim issues).  See ADR-024.
+        provider_notes: Normalized candidate notes from the reasoning
+            provider, after overlap suppression.  These are distinct from
+            plan-driven notes, concerns, and observations.  Markdown-only,
+            do not affect scoring.  See ADR-027.
         bundle: Structured review evidence gathered from PR delta,
             baseline, memory, and review plan.  Carries per-file context
             and review reasons.  Internal only — does not appear in the
@@ -90,6 +94,7 @@ class ReasoningResult:
     notes: list[str] = field(default_factory=list)
     concerns: list[ReviewConcern] = field(default_factory=list)
     observations: list[ReviewObservation] = field(default_factory=list)
+    provider_notes: list[CandidateNote] = field(default_factory=list)
     bundle: ReviewBundle | None = None
     reasoning_request: ReasoningRequest | None = None
     provider_name: str = ""
@@ -163,6 +168,7 @@ def run_reasoning(
     # -- Per-file review observations (ADR-024) --
     concerns: list[ReviewConcern] = []
     observations: list[ReviewObservation] = []
+    provider_notes: list[CandidateNote] = []
     bundle: ReviewBundle | None = None
     reasoning_request: ReasoningRequest | None = None
     provider_name: str = ""
@@ -183,10 +189,17 @@ def run_reasoning(
             deterministic_findings=deterministic_findings,
         )
 
-        # -- Provider-backed reasoning (ADR-025) --
+        # -- Provider-backed reasoning (ADR-025, ADR-027) --
         if provider is not None and provider.is_available():
             response = provider.reason(reasoning_request)
             provider_name = response.provider_name
+            # Suppress notes that overlap with existing context (ADR-027).
+            provider_notes = _suppress_overlapping_notes(
+                response.structured_notes,
+                concerns=concerns,
+                observations=observations,
+                deterministic_findings=deterministic_findings,
+            )
             if response.candidate_notes:
                 notes.extend(response.candidate_notes)
     else:
@@ -199,7 +212,8 @@ def run_reasoning(
 
     return ReasoningResult(
         findings=[], notes=notes, concerns=concerns,
-        observations=observations, bundle=bundle,
+        observations=observations, provider_notes=provider_notes,
+        bundle=bundle,
         reasoning_request=reasoning_request,
         provider_name=provider_name,
     )
@@ -378,3 +392,84 @@ def _add_memory_notes(
         notes.append(
             f"Prior review note ({entry.category}): {entry.summary}"
         )
+
+
+# ======================================================================
+# Overlap suppression for provider notes (ADR-027)
+# ======================================================================
+
+# Maximum provider notes to keep after suppression.
+_MAX_PROVIDER_NOTES = 5
+
+
+def _suppress_overlapping_notes(
+    notes: list[CandidateNote],
+    concerns: list[ReviewConcern] | None = None,
+    observations: list[ReviewObservation] | None = None,
+    deterministic_findings: list[Finding] | None = None,
+) -> list[CandidateNote]:
+    """Filter provider notes that overlap heavily with existing context.
+
+    Uses simple keyword overlap to detect redundancy.  This is intentionally
+    lightweight — a heuristic, not a ranking engine.  Notes that share
+    significant keyword overlap with an existing concern, observation, or
+    deterministic finding are suppressed.
+
+    The remaining notes are capped at ``_MAX_PROVIDER_NOTES``.
+
+    See ADR-027 for the decision to introduce overlap suppression.
+    """
+    if not notes:
+        return []
+
+    # Build keyword sets from existing context.
+    existing_keywords: set[str] = set()
+    for c in (concerns or []):
+        existing_keywords.update(_extract_keywords(c.title))
+        existing_keywords.update(_extract_keywords(c.summary))
+    for o in (observations or []):
+        existing_keywords.update(_extract_keywords(o.title))
+        existing_keywords.update(_extract_keywords(o.summary))
+    for f in (deterministic_findings or []):
+        existing_keywords.update(_extract_keywords(f.title))
+        existing_keywords.update(_extract_keywords(f.description))
+
+    if not existing_keywords:
+        return notes[:_MAX_PROVIDER_NOTES]
+
+    kept: list[CandidateNote] = []
+    for note in notes:
+        note_keywords = (
+            _extract_keywords(note.title) | _extract_keywords(note.summary)
+        )
+        if not note_keywords:
+            continue
+        overlap = note_keywords & existing_keywords
+        overlap_ratio = len(overlap) / len(note_keywords) if note_keywords else 0
+        # Suppress if more than 60% of the note's keywords overlap.
+        if overlap_ratio <= 0.6:
+            kept.append(note)
+
+    return kept[:_MAX_PROVIDER_NOTES]
+
+
+# Stopwords excluded from keyword extraction.
+_STOPWORDS = frozenset({
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "shall", "can", "this", "that", "these",
+    "those", "it", "its", "of", "in", "to", "for", "with", "on", "at",
+    "by", "from", "as", "or", "and", "but", "not", "no", "if", "so",
+    "than", "too", "very", "just", "about", "into", "over", "after",
+})
+
+
+def _extract_keywords(text: str) -> set[str]:
+    """Extract meaningful lowercase keywords from text.
+
+    Strips short words and common stopwords to focus on content terms.
+    """
+    if not text:
+        return set()
+    words = set(text.lower().split())
+    return {w.strip(".,;:!?\"'`()[]{}") for w in words if len(w) > 2} - _STOPWORDS

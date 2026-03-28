@@ -25,8 +25,8 @@ Design principles:
 - The interface is future-compatible with GitHub Models, external LLMs,
   and other reasoning backends without requiring pipeline rework.
 
-See ADR-025 for the decision record and ADR-026 for the GitHub Models
-provider decision.
+See ADR-025 for the decision record, ADR-026 for the GitHub Models
+provider decision, and ADR-027 for the provider output quality pass.
 """
 
 from __future__ import annotations
@@ -113,6 +113,34 @@ class ReasoningRequest:
 
 
 @dataclass
+class CandidateNote:
+    """Normalized internal structure for a provider-generated candidate note.
+
+    Candidate notes are provider output that has been shaped into a
+    consistent internal form for deduplication, prioritisation, and
+    markdown rendering.  They remain non-authoritative candidate
+    material and do not appear in the ScanResult JSON contract.
+
+    See ADR-027 for the decision to normalize provider output.
+    """
+
+    title: str = ""
+    """Concise note title (one line)."""
+
+    summary: str = ""
+    """Brief explanation of the security-relevant observation."""
+
+    related_paths: list[str] = field(default_factory=list)
+    """Changed file paths this note relates to."""
+
+    confidence: str = "low"
+    """How confident the provider is (low/medium — never high for candidate notes)."""
+
+    source: str = ""
+    """Origin of this note (e.g. 'github-models', 'mock')."""
+
+
+@dataclass
 class ReasoningResponse:
     """Structured output from a reasoning provider.
 
@@ -123,10 +151,17 @@ class ReasoningResponse:
 
     Phase 1: provider output produces candidate notes only.  Candidate
     findings are a future capability once trust calibration is in place.
+
+    ``structured_notes`` carry normalized ``CandidateNote`` objects
+    for dedup and rendering.  ``candidate_notes`` remains as a flat
+    string list for backward compatibility.
     """
 
     candidate_notes: list[str] = field(default_factory=list)
     """Reasoning-generated contextual notes for the PR summary."""
+
+    structured_notes: list[CandidateNote] = field(default_factory=list)
+    """Normalized candidate notes with title, summary, paths, confidence."""
 
     candidate_findings: list[dict[str, str]] = field(default_factory=list)
     """Reasoning-generated candidate findings (future use, empty in Phase 1)."""
@@ -233,37 +268,70 @@ class MockProvider(ReasoningProvider):
 
     def reason(self, request: ReasoningRequest) -> ReasoningResponse:
         notes: list[str] = []
+        structured: list[CandidateNote] = []
 
         notes.append(
             f"[mock-reasoning] Analysed {request.file_count} changed file(s)."
         )
+        structured.append(CandidateNote(
+            title="File analysis summary",
+            summary=f"Analysed {request.file_count} changed file(s).",
+            related_paths=[f.get("path", "") for f in request.changed_files_summary[:5]],
+            confidence="low",
+            source="mock",
+        ))
 
         if request.has_plan_context:
             areas = ", ".join(request.plan_focus_areas[:3])
             notes.append(
                 f"[mock-reasoning] Review plan focuses on: {areas}."
             )
+            structured.append(CandidateNote(
+                title=f"Review focus: {areas}",
+                summary=f"Review plan focuses on: {areas}.",
+                confidence="low",
+                source="mock",
+            ))
 
         if request.has_baseline_context:
             frameworks = ", ".join(request.baseline_frameworks[:3])
             notes.append(
                 f"[mock-reasoning] Repository baseline context: {frameworks}."
             )
+            structured.append(CandidateNote(
+                title=f"Baseline context: {frameworks}",
+                summary=f"Repository baseline context: {frameworks}.",
+                confidence="low",
+                source="mock",
+            ))
 
         if request.has_memory_context:
             cats = ", ".join(request.memory_categories[:3])
             notes.append(
                 f"[mock-reasoning] Review memory categories: {cats}."
             )
+            structured.append(CandidateNote(
+                title=f"Memory context: {cats}",
+                summary=f"Review memory categories: {cats}.",
+                confidence="low",
+                source="mock",
+            ))
 
         if request.deterministic_findings_summary:
             count = len(request.deterministic_findings_summary)
             notes.append(
                 f"[mock-reasoning] {count} deterministic finding(s) noted as context."
             )
+            structured.append(CandidateNote(
+                title="Deterministic context",
+                summary=f"{count} deterministic finding(s) noted as context.",
+                confidence="low",
+                source="mock",
+            ))
 
         return ReasoningResponse(
             candidate_notes=notes,
+            structured_notes=structured,
             candidate_findings=[],
             provider_name=self.name,
             is_from_live_provider=False,
@@ -291,21 +359,31 @@ _DEFAULT_MODEL = "openai/gpt-4o-mini"
 _DEFAULT_TIMEOUT_SECONDS = 30
 
 # Maximum number of candidate notes extracted from a single response.
-_MAX_CANDIDATE_NOTES = 20
+_MAX_CANDIDATE_NOTES = 10
 
 # System prompt that constrains the model to security-review candidate notes.
 _SYSTEM_PROMPT = (
-    "You are a security reviewer assistant for a GitHub pull request. "
-    "Your task is to review the changed files and context provided, and "
-    "produce concise, actionable security observations.\n\n"
-    "Rules:\n"
-    "- Focus on security implications of the changes described.\n"
-    "- Each observation should be a single clear sentence or short paragraph.\n"
-    "- Do not invent findings — only note what the provided context supports.\n"
-    "- Do not assign severity or confidence scores.\n"
-    "- Output ONLY a JSON array of strings, where each string is one observation.\n"
-    "- If there are no meaningful security observations, return an empty array: []\n"
-    "- Do not include any text outside the JSON array.\n"
+    "You are an experienced security code reviewer assisting with a GitHub "
+    "pull request review.  You have access to contextual information about "
+    "the repository and the specific changes being reviewed.\n\n"
+    "Your role:\n"
+    "- Produce concise, security-relevant observations about the changed code.\n"
+    "- Focus on what the specific changes introduce or expose.\n"
+    "- Be file-specific: tie each observation to the relevant changed file(s).\n"
+    "- Express genuine uncertainty — say 'may', 'could', 'worth verifying' "
+    "when you are not certain.\n\n"
+    "Do NOT:\n"
+    "- Restate deterministic findings already listed in the context.\n"
+    "- Repeat concerns or observations already provided.\n"
+    "- Produce generic security best-practice advice unrelated to the changes.\n"
+    "- Exaggerate risk — do not claim vulnerabilities without evidence.\n"
+    "- Assign severity or confidence scores.\n\n"
+    "Output format:\n"
+    "Return ONLY a JSON array of objects.  Each object must have:\n"
+    '  {"title": "<short title>", "summary": "<1-2 sentence observation>", '
+    '"paths": ["<related file path(s)>"], "confidence": "low" or "medium"}\n'
+    "If there are no meaningful security observations, return an empty array: []\n"
+    "Do not include any text outside the JSON array.\n"
 )
 
 
@@ -314,6 +392,8 @@ def _format_user_prompt(request: ReasoningRequest) -> str:
 
     Produces a structured text summary of the PR context that the model
     can reason about.  Intentionally concise to stay within token limits.
+    Includes explicit context about what has already been detected to
+    reduce redundant output.
     """
     sections: list[str] = []
 
@@ -358,7 +438,9 @@ def _format_user_prompt(request: ReasoningRequest) -> str:
             "Prior review categories: " + ", ".join(request.memory_categories)
         )
 
-    # -- Existing concerns --
+    # -- Already-detected context (to reduce redundancy) --
+    already_detected: list[str] = []
+
     if request.existing_concerns:
         concern_lines = []
         for c in request.existing_concerns[:5]:
@@ -366,23 +448,20 @@ def _format_user_prompt(request: ReasoningRequest) -> str:
                 f"  - [{c.get('category', '')}] {c.get('title', '')}: "
                 f"{c.get('summary', '')}"
             )
-        sections.append(
-            "Existing review concerns:\n" + "\n".join(concern_lines)
+        already_detected.append(
+            "Review concerns already raised:\n" + "\n".join(concern_lines)
         )
 
-    # -- Existing observations --
     if request.existing_observations:
         obs_lines = []
         for o in request.existing_observations[:5]:
             obs_lines.append(
-                f"  - {o.get('path', '')}: {o.get('title', '')} — "
-                f"{o.get('summary', '')}"
+                f"  - {o.get('path', '')}: {o.get('title', '')}"
             )
-        sections.append(
-            "Existing observations:\n" + "\n".join(obs_lines)
+        already_detected.append(
+            "Observations already noted:\n" + "\n".join(obs_lines)
         )
 
-    # -- Deterministic findings --
     if request.deterministic_findings_summary:
         det_lines = []
         for d in request.deterministic_findings_summary[:10]:
@@ -390,9 +469,15 @@ def _format_user_prompt(request: ReasoningRequest) -> str:
                 f"  - [{d.get('category', '')}] {d.get('title', '')} "
                 f"in {d.get('file', '')}"
             )
-        sections.append(
-            "Deterministic findings already detected:\n"
+        already_detected.append(
+            "Deterministic findings already detected (do NOT restate these):\n"
             + "\n".join(det_lines)
+        )
+
+    if already_detected:
+        sections.append(
+            "ALREADY DETECTED (do not repeat or restate):\n"
+            + "\n".join(already_detected)
         )
 
     if not sections:
@@ -401,42 +486,32 @@ def _format_user_prompt(request: ReasoningRequest) -> str:
     return "\n\n".join(sections)
 
 
-def _parse_candidate_notes(raw_text: str) -> list[str]:
+def _parse_candidate_notes(raw_text: str, provider_name: str = "") -> list[CandidateNote]:
     """Parse candidate notes from the model response text.
 
-    Expects a JSON array of strings.  Falls back to splitting by
-    newlines if JSON parsing fails — the model may not always comply.
+    Supports two formats:
+    1. JSON array of objects with title/summary/paths/confidence fields
+       (preferred — matches the updated system prompt).
+    2. JSON array of strings (backward-compatible fallback).
+
+    Falls back to line splitting if JSON parsing fails entirely.
     """
     text = raw_text.strip()
+    if not text:
+        return []
 
-    # Try JSON array parse first.
-    try:
-        parsed = json.loads(text)
-        if isinstance(parsed, list):
-            notes = [
-                str(item).strip()
-                for item in parsed
-                if isinstance(item, str) and item.strip()
-            ]
-            return notes[:_MAX_CANDIDATE_NOTES]
-    except (json.JSONDecodeError, ValueError):
-        pass
+    # Try JSON parse first.
+    parsed = _try_json_parse(text)
+    if parsed is not None and isinstance(parsed, list):
+        return _normalize_parsed_notes(parsed, provider_name)
 
     # Fallback: try to extract a JSON array from the response body.
     start = text.find("[")
     end = text.rfind("]")
     if start != -1 and end != -1 and end > start:
-        try:
-            parsed = json.loads(text[start : end + 1])
-            if isinstance(parsed, list):
-                notes = [
-                    str(item).strip()
-                    for item in parsed
-                    if isinstance(item, str) and item.strip()
-                ]
-                return notes[:_MAX_CANDIDATE_NOTES]
-        except (json.JSONDecodeError, ValueError):
-            pass
+        parsed = _try_json_parse(text[start : end + 1])
+        if parsed is not None and isinstance(parsed, list):
+            return _normalize_parsed_notes(parsed, provider_name)
 
     # Last resort: split non-empty lines, filter obvious non-content.
     lines = [
@@ -444,7 +519,65 @@ def _parse_candidate_notes(raw_text: str) -> list[str]:
         for line in text.splitlines()
         if line.strip() and not line.strip().startswith(("{", "}", "[", "]"))
     ]
-    return [l for l in lines if len(l) > 10][:_MAX_CANDIDATE_NOTES]
+    return [
+        CandidateNote(
+            title=l[:80],
+            summary=l,
+            confidence="low",
+            source=provider_name,
+        )
+        for l in lines if len(l) > 10
+    ][:_MAX_CANDIDATE_NOTES]
+
+
+def _try_json_parse(text: str):
+    """Attempt JSON parse, returning None on failure."""
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+def _normalize_parsed_notes(
+    items: list, provider_name: str = "",
+) -> list[CandidateNote]:
+    """Normalize a parsed JSON array into CandidateNote objects.
+
+    Handles both object items (structured) and string items (flat).
+    """
+    notes: list[CandidateNote] = []
+    for item in items:
+        if len(notes) >= _MAX_CANDIDATE_NOTES:
+            break
+        if isinstance(item, dict):
+            title = str(item.get("title", "")).strip()
+            summary = str(item.get("summary", "")).strip()
+            if not summary and not title:
+                continue
+            paths = item.get("paths", [])
+            if isinstance(paths, str):
+                paths = [paths] if paths else []
+            elif not isinstance(paths, list):
+                paths = []
+            confidence = str(item.get("confidence", "low")).strip().lower()
+            if confidence not in ("low", "medium"):
+                confidence = "low"
+            notes.append(CandidateNote(
+                title=title or summary[:80],
+                summary=summary or title,
+                related_paths=[str(p) for p in paths if p],
+                confidence=confidence,
+                source=provider_name,
+            ))
+        elif isinstance(item, str) and item.strip():
+            text = item.strip()
+            notes.append(CandidateNote(
+                title=text[:80],
+                summary=text,
+                confidence="low",
+                source=provider_name,
+            ))
+    return notes
 
 
 class GitHubModelsProvider(ReasoningProvider):
@@ -556,10 +689,12 @@ class GitHubModelsProvider(ReasoningProvider):
         if not raw_content:
             return self._empty_response()
 
-        notes = _parse_candidate_notes(raw_content)
+        structured = _parse_candidate_notes(raw_content, provider_name=self.name)
+        flat_notes = [n.summary for n in structured]
 
         return ReasoningResponse(
-            candidate_notes=notes,
+            candidate_notes=flat_notes,
+            structured_notes=structured,
             candidate_findings=[],
             provider_name=self.name,
             is_from_live_provider=True,
