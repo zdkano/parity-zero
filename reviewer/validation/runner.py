@@ -212,6 +212,67 @@ def _evaluate_expectations(
             ),
         ))
 
+    # -- Max concerns --
+    if expected.max_concerns is not None:
+        concern_count = len(analysis.concerns)
+        assertions.append(Assertion(
+            name="max_concerns",
+            passed=concern_count <= expected.max_concerns,
+            detail=(
+                f"expected <= {expected.max_concerns} concerns, got {concern_count}"
+                if concern_count > expected.max_concerns else ""
+            ),
+        ))
+
+    # -- Max observations --
+    if expected.max_observations is not None:
+        obs_count = len(analysis.observations)
+        assertions.append(Assertion(
+            name="max_observations",
+            passed=obs_count <= expected.max_observations,
+            detail=(
+                f"expected <= {expected.max_observations} observations, got {obs_count}"
+                if obs_count > expected.max_observations else ""
+            ),
+        ))
+
+    # -- Provider notes presence --
+    if expected.has_provider_notes is not None:
+        has_notes = len(analysis.provider_notes) > 0
+        assertions.append(Assertion(
+            name="has_provider_notes",
+            passed=has_notes == expected.has_provider_notes,
+            detail=(
+                f"expected provider_notes={'present' if expected.has_provider_notes else 'absent'}, "
+                f"got {len(analysis.provider_notes)} note(s)"
+                if has_notes != expected.has_provider_notes else ""
+            ),
+        ))
+
+    # -- Expected markdown sections --
+    for section in expected.expected_sections:
+        found = f"## {section}" in markdown or f"### {section}" in markdown
+        assertions.append(Assertion(
+            name=f"section_present:{section[:40]}",
+            passed=found,
+            detail=(
+                f"expected section '{section}' in markdown"
+                if not found else ""
+            ),
+        ))
+
+    # -- Absent markdown sections --
+    for section in expected.absent_sections:
+        found = f"## {section}" in markdown or f"### {section}" in markdown
+        assertions.append(Assertion(
+            name=f"section_absent:{section[:40]}",
+            passed=not found,
+            detail=(
+                f"expected section '{section}' absent from markdown"
+                if found else ""
+            ),
+        ))
+
     # -- Trust-boundary violations --
     if expected.no_trust_boundary_violations:
         # Provider output must not have created findings
