@@ -652,6 +652,6 @@ class TestRelevantMemoryEntries:
         assert len(entries) == 0
 
     def test_empty_memory(self):
-        mem = ReviewMemory()
+        mem = ReviewMemory(repo="acme/webapp")
         entries = _relevant_memory_entries(["src/auth/login.py"], mem)
         assert entries == []
