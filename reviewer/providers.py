@@ -358,7 +358,8 @@ _DEFAULT_MODEL = "openai/gpt-4o-mini"
 # Request timeout in seconds.
 _DEFAULT_TIMEOUT_SECONDS = 30
 
-# Maximum number of candidate notes extracted from a single response.
+# Maximum candidate notes extracted from a single response (parsing-stage cap).
+# Further reduced to _MAX_PROVIDER_NOTES (5) after overlap suppression.
 _MAX_CANDIDATE_NOTES = 10
 
 # System prompt that constrains the model to security-review candidate notes.
@@ -521,12 +522,12 @@ def _parse_candidate_notes(raw_text: str, provider_name: str = "") -> list[Candi
     ]
     return [
         CandidateNote(
-            title=l[:80],
-            summary=l,
+            title=text[:80],
+            summary=text,
             confidence="low",
             source=provider_name,
         )
-        for l in lines if len(l) > 10
+        for text in lines if len(text) > 10
     ][:_MAX_CANDIDATE_NOTES]
 
 

@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
+import httpx
+
 from reviewer.engine import AnalysisResult, analyse, derive_decision_and_risk
 from reviewer.formatter import format_markdown
 from reviewer.models import (
@@ -127,7 +129,6 @@ def _mock_httpx_response(content: str, status_code: int = 200):
     }
     mock_resp.raise_for_status = MagicMock()
     if status_code >= 400:
-        import httpx
         mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
             "error", request=MagicMock(), response=mock_resp,
         )
@@ -151,7 +152,7 @@ class TestImprovedPromptStructure:
 
     def test_system_prompt_requires_uncertainty(self):
         prompt_lower = _SYSTEM_PROMPT.lower()
-        assert any(word in prompt_lower for word in ["uncertain", "may", "could", "verif"])
+        assert any(word in prompt_lower for word in ["uncertain", "may", "could", "verify"])
 
     def test_system_prompt_discourages_generic_advice(self):
         prompt_lower = _SYSTEM_PROMPT.lower()
