@@ -63,28 +63,48 @@ Architecture decisions are recorded in `.squad/decisions.md`.
 
 ## Reasoning Provider Configuration
 
-parity-zero supports optional AI-powered reasoning via the provider system (ADR-025, ADR-026).  By default, reasoning is **disabled** — the reviewer runs with heuristic-based contextual notes only.
+parity-zero supports optional AI-powered reasoning via the provider system (ADR-025, ADR-026, ADR-031).  By default, reasoning is **disabled** — the reviewer runs with heuristic-based contextual notes only.
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `PARITY_REASONING_PROVIDER` | `disabled` | Provider selection: `disabled` or `github-models` |
-| `PARITY_REASONING_MODEL` | `openai/gpt-4o-mini` | Model identifier (used when provider is `github-models`) |
+| `PARITY_REASONING_PROVIDER` | `disabled` | Provider selection: `disabled`, `github-models`, `anthropic`, or `openai` |
+| `PARITY_REASONING_MODEL` | *(per-provider default)* | Model identifier override |
 | `GITHUB_TOKEN` | *(none)* | GitHub token for authentication (required for `github-models`) |
+| `ANTHROPIC_API_KEY` | *(none)* | Anthropic API key (required for `anthropic`) |
+| `OPENAI_API_KEY` | *(none)* | OpenAI API key (required for `openai`) |
+| `OPENAI_API_BASE` | *(none)* | Optional base URL override for OpenAI-compatible endpoints |
 
 ### Enabling GitHub Models
-
-To enable AI-powered reasoning in a GitHub Actions workflow:
 
 ```yaml
 env:
   PARITY_REASONING_PROVIDER: github-models
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  # PARITY_REASONING_MODEL: openai/gpt-4o  # optional: override default model
+  # PARITY_REASONING_MODEL: openai/gpt-4o  # optional: override default (openai/gpt-4o-mini)
 ```
 
-When enabled, the provider generates **candidate notes** that appear in the PR summary as contextual observations.  Provider output is non-authoritative — it does not create findings, affect scoring, or influence the pass/warn decision.
+### Enabling Anthropic
+
+```yaml
+env:
+  PARITY_REASONING_PROVIDER: anthropic
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  # PARITY_REASONING_MODEL: claude-sonnet-4-20250514  # optional: override default
+```
+
+### Enabling OpenAI
+
+```yaml
+env:
+  PARITY_REASONING_PROVIDER: openai
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  # PARITY_REASONING_MODEL: gpt-4o  # optional: override default (gpt-4o-mini)
+  # OPENAI_API_BASE: https://my-proxy.example.com/v1  # optional: custom endpoint
+```
+
+When enabled, any provider generates **candidate notes** that appear in the PR summary as contextual observations.  Provider output is non-authoritative — it does not create findings, affect scoring, or influence the pass/warn decision.  The trust model is identical across all providers.
 
 ### Behavior When Disabled
 

@@ -16,6 +16,10 @@ Key types:
 - **MockProvider** — predictable provider for testing and local development.
 - **GitHubModelsProvider** — first live reasoning provider using GitHub
   Models inference API (ADR-026).
+- **AnthropicProvider** — live reasoning provider using the Anthropic
+  Messages API (ADR-031).
+- **OpenAIProvider** — live reasoning provider using the OpenAI Chat
+  Completions API (ADR-031).
 
 Design principles:
 - No live credentials required for tests or default flow.
@@ -26,7 +30,8 @@ Design principles:
   and other reasoning backends without requiring pipeline rework.
 
 See ADR-025 for the decision record, ADR-026 for the GitHub Models
-provider decision, and ADR-027 for the provider output quality pass.
+provider decision, ADR-027 for the provider output quality pass, and
+ADR-031 for the Anthropic and OpenAI provider decisions.
 """
 
 from __future__ import annotations
@@ -667,6 +672,277 @@ class GitHubModelsProvider(ReasoningProvider):
 
         headers = {
             "Authorization": f"Bearer {self._token}",
+            "Content-Type": "application/json",
+        }
+
+        url = f"{self._endpoint}/chat/completions"
+
+        response = _httpx_mod.post(
+            url,
+            json=payload,
+            headers=headers,
+            timeout=self._timeout,
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        raw_content = (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+        )
+
+        if not raw_content:
+            return self._empty_response()
+
+        structured = _parse_candidate_notes(raw_content, provider_name=self.name)
+        flat_notes = [n.summary for n in structured]
+
+        return ReasoningResponse(
+            candidate_notes=flat_notes,
+            structured_notes=structured,
+            candidate_findings=[],
+            provider_name=self.name,
+            is_from_live_provider=True,
+        )
+
+
+# ======================================================================
+# Anthropic provider (ADR-031)
+# ======================================================================
+
+# Default endpoint for the Anthropic Messages API.
+_ANTHROPIC_ENDPOINT = "https://api.anthropic.com"
+
+# Default model for the Anthropic provider.
+_ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-20250514"
+
+# Anthropic API version header.
+_ANTHROPIC_API_VERSION = "2023-06-01"
+
+
+class AnthropicProvider(ReasoningProvider):
+    """Live reasoning provider using the Anthropic Messages API (ADR-031).
+
+    Sends a structured prompt to the Anthropic Messages endpoint and parses
+    the response into candidate notes.
+
+    Configuration:
+    - ``api_key``: Anthropic API key (``ANTHROPIC_API_KEY``).
+    - ``model``: Model identifier (default: ``claude-sonnet-4-20250514``).
+    - ``endpoint``: API base URL (default: Anthropic production endpoint).
+    - ``timeout``: Request timeout in seconds (default: 30).
+
+    Safety properties:
+    - Returns an empty response on any error (network, timeout, parse).
+    - Does not produce findings — only candidate notes.
+    - Does not affect scoring or decision.
+    - Is never required — callers can always fall back to DisabledProvider.
+
+    Provider output is **candidate material only** — it does not become
+    trusted findings.  See ADR-031 for the full decision record.
+    """
+
+    def __init__(
+        self,
+        api_key: str = "",
+        model: str = "",
+        endpoint: str = "",
+        timeout: int = _DEFAULT_TIMEOUT_SECONDS,
+    ) -> None:
+        self._api_key = api_key
+        self._model = model or _ANTHROPIC_DEFAULT_MODEL
+        self._endpoint = (endpoint or _ANTHROPIC_ENDPOINT).rstrip("/")
+        self._timeout = timeout
+
+    def reason(self, request: ReasoningRequest) -> ReasoningResponse:
+        """Send the reasoning request to Anthropic and return candidate notes.
+
+        Any failure (network, timeout, invalid response) results in an
+        empty response — the reviewer pipeline continues normally.
+        """
+        if not self.is_available():
+            return self._empty_response()
+
+        try:
+            return self._call_model(request)
+        except Exception:
+            logger.warning(
+                "AnthropicProvider: reasoning call failed; "
+                "falling back to empty response.",
+                exc_info=True,
+            )
+            return self._empty_response()
+
+    def is_available(self) -> bool:
+        """Available when an API key is configured."""
+        return bool(self._api_key)
+
+    @property
+    def name(self) -> str:
+        return "anthropic"
+
+    # -- Internal helpers --
+
+    def _empty_response(self) -> ReasoningResponse:
+        return ReasoningResponse(
+            candidate_notes=[],
+            candidate_findings=[],
+            provider_name=self.name,
+            is_from_live_provider=False,
+        )
+
+    def _call_model(self, request: ReasoningRequest) -> ReasoningResponse:
+        """Execute the HTTP call to the Anthropic Messages API."""
+        user_prompt = _format_user_prompt(request)
+
+        payload = {
+            "model": self._model,
+            "max_tokens": 1024,
+            "system": _SYSTEM_PROMPT,
+            "messages": [
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+
+        headers = {
+            "x-api-key": self._api_key,
+            "anthropic-version": _ANTHROPIC_API_VERSION,
+            "Content-Type": "application/json",
+        }
+
+        url = f"{self._endpoint}/v1/messages"
+
+        response = _httpx_mod.post(
+            url,
+            json=payload,
+            headers=headers,
+            timeout=self._timeout,
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        # Anthropic Messages API returns content as a list of blocks.
+        content_blocks = data.get("content", [])
+        raw_content = ""
+        for block in content_blocks:
+            if isinstance(block, dict) and block.get("type") == "text":
+                raw_content += block.get("text", "")
+
+        if not raw_content:
+            return self._empty_response()
+
+        structured = _parse_candidate_notes(raw_content, provider_name=self.name)
+        flat_notes = [n.summary for n in structured]
+
+        return ReasoningResponse(
+            candidate_notes=flat_notes,
+            structured_notes=structured,
+            candidate_findings=[],
+            provider_name=self.name,
+            is_from_live_provider=True,
+        )
+
+
+# ======================================================================
+# OpenAI provider (ADR-031)
+# ======================================================================
+
+# Default endpoint for the OpenAI Chat Completions API.
+_OPENAI_ENDPOINT = "https://api.openai.com/v1"
+
+# Default model for the OpenAI provider.
+_OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
+
+
+class OpenAIProvider(ReasoningProvider):
+    """Live reasoning provider using the OpenAI Chat Completions API (ADR-031).
+
+    Sends a structured prompt to the OpenAI chat completions endpoint and
+    parses the response into candidate notes.  The API shape is compatible
+    with OpenAI-compatible third-party endpoints (use ``endpoint`` to
+    override the base URL).
+
+    Configuration:
+    - ``api_key``: OpenAI API key (``OPENAI_API_KEY``).
+    - ``model``: Model identifier (default: ``gpt-4o-mini``).
+    - ``endpoint``: API base URL (default: OpenAI production endpoint).
+    - ``timeout``: Request timeout in seconds (default: 30).
+
+    Safety properties:
+    - Returns an empty response on any error (network, timeout, parse).
+    - Does not produce findings — only candidate notes.
+    - Does not affect scoring or decision.
+    - Is never required — callers can always fall back to DisabledProvider.
+
+    Provider output is **candidate material only** — it does not become
+    trusted findings.  See ADR-031 for the full decision record.
+    """
+
+    def __init__(
+        self,
+        api_key: str = "",
+        model: str = "",
+        endpoint: str = "",
+        timeout: int = _DEFAULT_TIMEOUT_SECONDS,
+    ) -> None:
+        self._api_key = api_key
+        self._model = model or _OPENAI_DEFAULT_MODEL
+        self._endpoint = (endpoint or _OPENAI_ENDPOINT).rstrip("/")
+        self._timeout = timeout
+
+    def reason(self, request: ReasoningRequest) -> ReasoningResponse:
+        """Send the reasoning request to OpenAI and return candidate notes.
+
+        Any failure (network, timeout, invalid response) results in an
+        empty response — the reviewer pipeline continues normally.
+        """
+        if not self.is_available():
+            return self._empty_response()
+
+        try:
+            return self._call_model(request)
+        except Exception:
+            logger.warning(
+                "OpenAIProvider: reasoning call failed; "
+                "falling back to empty response.",
+                exc_info=True,
+            )
+            return self._empty_response()
+
+    def is_available(self) -> bool:
+        """Available when an API key is configured."""
+        return bool(self._api_key)
+
+    @property
+    def name(self) -> str:
+        return "openai"
+
+    # -- Internal helpers --
+
+    def _empty_response(self) -> ReasoningResponse:
+        return ReasoningResponse(
+            candidate_notes=[],
+            candidate_findings=[],
+            provider_name=self.name,
+            is_from_live_provider=False,
+        )
+
+    def _call_model(self, request: ReasoningRequest) -> ReasoningResponse:
+        """Execute the HTTP call to the OpenAI Chat Completions API."""
+        user_prompt = _format_user_prompt(request)
+
+        payload = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.2,
+        }
+
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
 
