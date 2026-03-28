@@ -100,11 +100,10 @@ def analyse(
     # -- Deterministic support layer (ADR-013) --
     findings.extend(run_deterministic_checks(file_contents))
 
-    # -- Contextual review — primary review path (ADR-014) --
-    # Phase 1: the reasoning layer is a structured stub.  When LLM
-    # integration is added, it will receive the full PullRequestContext
-    # (including baseline profile and memory) rather than raw dicts.
-    reasoning_result = run_reasoning(file_contents)
+    # -- Contextual review — primary review path (ADR-014, ADR-019) --
+    # The reasoning layer receives the full PullRequestContext so it can
+    # consume baseline profile and review memory for context-aware notes.
+    reasoning_result = run_reasoning(ctx)
     findings.extend(reasoning_result.findings)
 
     return AnalysisResult(

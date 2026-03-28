@@ -79,9 +79,10 @@ The contextual review engine is intended to reason like a security engineer —
 not to pattern-match like a scanner.
 
 Later considerations:
-- Real LLM integration for contextual review
-- Baseline profile influencing review focus areas
-- Review memory informing recurring pattern detection
+- Real LLM integration for deeper contextual review
+- Baseline profile influencing review scoring (not just notes)
+- Review memory informing recurring pattern detection with higher confidence
+- Policy/intent context influencing review (Phase 3)
 
 ---
 
@@ -105,21 +106,22 @@ Later considerations:
 ### 6. Reasoning Layer (Contextual Review)
 The **primary analysis path** for contextual security review.
 
-This layer will eventually consume:
+This layer consumes:
 - PR delta (changed files and their content)
 - baseline repository security profile
-- deterministic support signals
 - review memory and prior findings themes
-- policy/intent context (later phases)
 
 It produces:
-- contextual findings with reasoning
-- reviewer notes and observations
-- confidence-weighted assessments
+- contextual review notes informed by repository context
+- structured observations about sensitive paths, auth areas, and framework context
+- historical awareness from review memory
+- confidence-weighted findings (when LLM integration is added)
 
-Phase 1 status: structured stub.  LLM integration will be added in a
-subsequent iteration.  The stub makes the layer's intended role and
-interface clear.
+Phase 1 status: baseline-aware and memory-aware contextual notes are
+implemented.  The layer accepts ``PullRequestContext`` as its canonical
+input (ADR-019) and produces heuristic notes based on path overlap,
+baseline patterns, and memory relevance.  LLM integration will be added
+in a subsequent iteration.
 
 ---
 

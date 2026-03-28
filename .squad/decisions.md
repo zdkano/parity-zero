@@ -431,3 +431,67 @@ A `PullRequestContext` model is introduced to combine PR delta information (chan
 - The engine accepts `PullRequestContext`, `PRContent`, or `dict[str, str]` for backward compatibility
 - Phase 1 baseline and memory fields are typically None — they become populated as those capabilities mature
 - No changes to the ScanResult JSON contract
+
+---
+
+## ADR-019: PullRequestContext is the canonical review engine input
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+`PullRequestContext` is now the **canonical input** to both the analysis engine and the contextual review layer.  The reasoning module (`run_reasoning`) accepts `PullRequestContext` directly so it can consume baseline profile and review memory.
+
+### Rationale
+- The contextual review layer needs access to baseline profile and review memory to produce context-aware notes
+- Passing `PullRequestContext` directly avoids lossy conversion to `dict[str, str]` before the reasoning layer
+- This makes the data flow explicit: engine normalises → passes full context → reasoning uses it
+- Backward compatibility with `dict[str, str]` is preserved via automatic wrapping
+
+### Consequences
+- `run_reasoning()` now accepts `PullRequestContext` (preferred) or `dict[str, str]` (legacy compat)
+- The engine passes the full `PullRequestContext` to `run_reasoning()` instead of raw dicts
+- Callers using `dict[str, str]` or `PRContent` continue to work — the engine wraps them
+- No changes to the ScanResult JSON contract
+
+---
+
+## ADR-020: Baseline-aware contextual review notes (first implementation)
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+The contextual review layer now produces **baseline-aware review notes** based on overlap between the PR delta and the repository security profile.
+
+### Rationale
+- Context-aware review is the primary product direction (ADR-014)
+- Making baseline profile materially influence review output is the first step toward repo-aware review
+- Heuristic path-based and pattern-based notes provide value without requiring full LLM integration
+- Notes are informational and do not create fake certainty or inflate findings
+
+### What is implemented
+- Changed files overlapping baseline sensitive paths → contextual note about sensitive areas
+- Changed files in auth-related path segments → contextual note about auth areas
+- Baseline auth patterns (JWT, OAuth, etc.) → contextual note about existing auth mechanisms
+- Framework context from baseline → contextual note about framework conventions
+- Multi-language context → contextual note about cross-language boundaries
+- Review memory entries with categories matching inferred path categories → historical awareness notes
+- Relevant memory summaries surfaced as prior review notes (bounded to avoid noise)
+
+### Consequences
+- Contextual review notes are now materially influenced by repository context
+- Notes appear in `AnalysisResult.reasoning_notes` and flow into the review output
+- Notes are informational only — they do not produce findings or affect risk scoring
+- The JSON contract is unchanged
+- Deterministic checks continue to operate independently as the supporting signal layer
+
+### Known limitations and deferred concerns
+- Contextual notes are heuristic-based, not full repository reasoning
+- Notes are path-segment-based and may miss deeper semantic relationships
+- Memory is modelled but not yet persistently stored (Phase 2+)
+- Baseline context is lightweight; richer enrichment is needed later
+- Context can influence review attention but does not yet influence scoring
+- Scoring remains coarse and intentionally temporary (ADR-012, ADR-017)
+- LLM-based reasoning is not yet connected — current notes are rule-derived
+- Memory relevance matching is category-based; deeper content matching is deferred
