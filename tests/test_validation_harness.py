@@ -460,10 +460,12 @@ class TestProviderGateExpectations:
         )
 
     def test_all_scenarios_have_gate_decision(self):
+        valid_decisions = {"invoked", "skipped", "disabled", "unavailable"}
         for s in SCENARIOS:
             result = run_scenario(s)
-            assert result.analysis.trace.provider_gate_decision != "", (
-                f"scenario {s.id} has no gate decision in trace"
+            assert result.analysis.trace.provider_gate_decision in valid_decisions, (
+                f"scenario {s.id} has unexpected gate decision: "
+                f"'{result.analysis.trace.provider_gate_decision}'"
             )
 
 

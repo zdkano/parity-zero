@@ -25,7 +25,7 @@ from reviewer.formatter import format_markdown
 from reviewer.models import PRContent, PullRequestContext
 from reviewer.planner import build_review_plan
 from reviewer.bundle import build_review_bundle
-from reviewer.provider_gate import evaluate_provider_gate
+from reviewer.provider_gate import ProviderGateResult, evaluate_provider_gate
 from reviewer.providers import DisabledProvider, MockProvider
 from reviewer.validation.scenario import ExpectedBehavior, ValidationScenario
 from schemas.findings import ScanResult
@@ -98,7 +98,7 @@ def _evaluate_expectations(
     analysis: AnalysisResult,
     scan_result: ScanResult,
     markdown: str,
-    gate_result,
+    gate_result: ProviderGateResult,
 ) -> list[Assertion]:
     """Evaluate all declared expectations and return assertions."""
     assertions: list[Assertion] = []
