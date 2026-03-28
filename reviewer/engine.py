@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 
 from schemas.findings import Decision, Finding, Severity
 from reviewer.checks import run_deterministic_checks
-from reviewer.models import PRContent, PullRequestContext, ReviewConcern
+from reviewer.models import PRContent, PullRequestContext, ReviewBundle, ReviewConcern
 from reviewer.planner import build_review_plan
 from reviewer.reasoning import run_reasoning
 
@@ -63,11 +63,15 @@ class AnalysisResult:
         concerns: Plan-informed review concerns — areas that may deserve
             closer security attention.  Distinct from findings; do not
             affect scoring.  See ADR-022.
+        bundle: Structured review evidence from the review bundle builder.
+            Internal only — does not appear in ScanResult or the JSON
+            contract.  See ADR-023.
     """
 
     findings: list[Finding] = field(default_factory=list)
     reasoning_notes: list[str] = field(default_factory=list)
     concerns: list[ReviewConcern] = field(default_factory=list)
+    bundle: ReviewBundle | None = None
 
 
 def analyse(
@@ -118,6 +122,7 @@ def analyse(
         findings=_deduplicate(findings),
         reasoning_notes=reasoning_result.notes,
         concerns=reasoning_result.concerns,
+        bundle=reasoning_result.bundle,
     )
 
 

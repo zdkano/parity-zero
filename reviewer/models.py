@@ -11,6 +11,8 @@ Provides explicit structures for:
   persistent review context that accumulates over time (ADR-016).
 - **Pull request context** — ``PullRequestContext`` combining PR delta
   with baseline profile and review memory (ADR-018).
+- **Review bundle** — ``ReviewBundleItem`` and ``ReviewBundle`` for
+  structured review evidence aggregation (ADR-023).
 
 Phase 1 keeps models deliberately minimal — see relevant ADRs.
 """
@@ -268,6 +270,105 @@ class ReviewConcern:
 
     related_paths: list[str] = field(default_factory=list)
     """File paths related to this concern."""
+
+
+# ======================================================================
+# Review bundle (ADR-023)
+# ======================================================================
+
+
+@dataclass
+class ReviewBundleItem:
+    """A single file under review with its gathered context.
+
+    Each item represents one changed file together with the evidence
+    explaining why it is included in the review and what surrounding
+    context is relevant.  Items are deliberately lightweight — they
+    carry just enough information to support better contextual review
+    inputs without attempting full AST or code-graph analysis.
+
+    See ADR-023 for the decision to introduce the review bundle concept.
+    """
+
+    path: str = ""
+    """Repo-relative file path."""
+
+    content: str = ""
+    """Changed file content (full text, as provided by PRFile)."""
+
+    review_reason: str = ""
+    """Why this file is in review focus (e.g. 'sensitive_path', 'auth_area', 'changed_file')."""
+
+    focus_areas: list[str] = field(default_factory=list)
+    """Finding categories relevant to this file from ReviewPlan."""
+
+    baseline_context: list[str] = field(default_factory=list)
+    """Relevant baseline information (frameworks, auth patterns)."""
+
+    memory_context: list[str] = field(default_factory=list)
+    """Relevant historical review memory entries."""
+
+    related_paths: list[str] = field(default_factory=list)
+    """Other changed paths that share review context with this file."""
+
+
+@dataclass
+class ReviewBundle:
+    """Structured review evidence aggregation for contextual review.
+
+    Gathers the relevant evidence and surrounding context for security
+    review.  Sits between ``PullRequestContext`` / ``ReviewPlan`` and
+    the contextual review / future reasoning layers.
+
+    The bundle captures enough information to support better contextual
+    review later, including:
+    - changed file paths with content
+    - why each item is in review focus
+    - relevant baseline profile context
+    - relevant memory context
+    - related context paths when easily derivable
+
+    The bundle is intentionally lightweight and heuristic-based in Phase 1.
+    It does **not** appear in the ScanResult JSON contract and does **not**
+    affect risk scoring.
+
+    See ADR-023 for the decision record.
+    """
+
+    items: list[ReviewBundleItem] = field(default_factory=list)
+    """Individual file review items with gathered context."""
+
+    plan_summary: list[str] = field(default_factory=list)
+    """Reviewer guidance from the ReviewPlan."""
+
+    repo_frameworks: list[str] = field(default_factory=list)
+    """Frameworks detected in the repository baseline."""
+
+    repo_auth_patterns: list[str] = field(default_factory=list)
+    """Auth patterns detected in the repository baseline."""
+
+    @property
+    def item_count(self) -> int:
+        """Number of items in the bundle."""
+        return len(self.items)
+
+    @property
+    def sensitive_items(self) -> list[ReviewBundleItem]:
+        """Items whose review reason involves sensitive paths."""
+        return [i for i in self.items if "sensitive" in i.review_reason]
+
+    @property
+    def auth_items(self) -> list[ReviewBundleItem]:
+        """Items whose review reason involves auth areas."""
+        return [i for i in self.items if "auth" in i.review_reason]
+
+    @property
+    def has_high_focus_items(self) -> bool:
+        """Whether any items have non-trivial review focus."""
+        return any(
+            i.review_reason not in ("", "changed_file")
+            for i in self.items
+        )
 
 
 # ======================================================================
