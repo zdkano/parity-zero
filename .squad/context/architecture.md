@@ -110,18 +110,37 @@ This layer consumes:
 - PR delta (changed files and their content)
 - baseline repository security profile
 - review memory and prior findings themes
+- structured review plan (from the planner layer — ADR-021)
 
 It produces:
-- contextual review notes informed by repository context
+- contextual review notes informed by the structured review plan
 - structured observations about sensitive paths, auth areas, and framework context
 - historical awareness from review memory
 - confidence-weighted findings (when LLM integration is added)
 
-Phase 1 status: baseline-aware and memory-aware contextual notes are
-implemented.  The layer accepts ``PullRequestContext`` as its canonical
-input (ADR-019) and produces heuristic notes based on path overlap,
-baseline patterns, and memory relevance.  LLM integration will be added
-in a subsequent iteration.
+Phase 1 status: the reasoning layer accepts a `ReviewPlan` (ADR-021) and
+generates plan-driven contextual notes.  When no plan is provided, it falls
+back to ad-hoc overlap checks for backward compatibility.  LLM integration
+will be added in a subsequent iteration.
+
+---
+
+### 6b. Review Planner (ADR-021)
+A lightweight **contextual review planning** layer that turns PR delta +
+baseline repo context + review memory into a structured `ReviewPlan`.
+
+Responsibilities:
+- derive review focus areas from path analysis (sensitive paths, auth areas)
+- set review flags based on what the PR touches
+- extract relevant framework and auth-pattern context from baseline
+- match relevant historical memory categories
+- generate reviewer guidance for downstream reasoning
+
+The planner bridges raw context and contextual reasoning.  It makes
+review attention explicit, testable, and extensible.
+
+Phase 1 status: heuristic-based plan derivation.  Later phases may
+incorporate provider-backed reasoning into plan construction.
 
 ---
 
@@ -216,7 +235,8 @@ flowchart LR
     subgraph PR_Review[PR Review]
         PR[Pull Request] --> PCB[PR Context Builder]
         RSP --> PCB
-        PCB --> CRE[Contextual Security Review Engine]
+        PCB --> RP[Review Planner]
+        RP --> CRE[Contextual Security Review Engine]
         PCB --> DSC[Deterministic Support Checks]
         DSC --> CRE
     end

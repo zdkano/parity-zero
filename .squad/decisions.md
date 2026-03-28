@@ -495,3 +495,50 @@ The contextual review layer now produces **baseline-aware review notes** based o
 - Scoring remains coarse and intentionally temporary (ADR-012, ADR-017)
 - LLM-based reasoning is not yet connected — current notes are rule-derived
 - Memory relevance matching is category-based; deeper content matching is deferred
+
+---
+
+## ADR-021: Introduce ReviewPlan as contextual review planning primitive
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+A lightweight `ReviewPlan` model and a `build_review_plan()` planner now bridge the gap between raw PR context and contextual review reasoning.
+
+The planner derives structured review focus from `PullRequestContext` (PR delta + baseline profile + review memory) and produces a `ReviewPlan` that the reasoning layer consumes to generate plan-driven contextual notes.
+
+### Rationale
+- Context was influencing review notes via ad-hoc overlap checks scattered in the reasoning layer
+- A single planning step makes review attention explicit, testable, and extensible
+- The plan captures focus areas, review flags, sensitive/auth paths touched, relevant memory categories, and framework/auth-pattern context
+- This separates the "what to focus on" decision from the "how to express notes" decision
+- The planner is a natural integration point for future provider-backed reasoning
+
+### What is implemented
+- `ReviewPlan` dataclass in `reviewer/models.py` with explicit fields for focus areas, flags, path overlap, memory categories, framework/auth context, and reviewer guidance
+- `reviewer/planner.py` with `build_review_plan(ctx)` function deriving focus from PR delta and context
+- Path analysis helpers (`sensitive_path_overlap`, `auth_path_overlap`, `infer_path_categories`, `relevant_memory_entries`) moved to `planner.py` as canonical location, re-exported from `reasoning.py` for backward compatibility
+- `reviewer/reasoning.py` refactored: when a `ReviewPlan` is provided, notes are generated from the structured plan rather than ad-hoc overlap checks
+- `reviewer/engine.py` builds a `ReviewPlan` from context and passes it to the reasoning layer
+- 69 new tests covering planner output, engine integration, flow stability, no-overclaiming, and backward compatibility
+
+### Key design choices
+- **Plan guides attention, does not claim vulnerabilities.** The plan influences which areas receive closer review; it does not produce findings or affect risk scoring.
+- **Backward compatible.** Reasoning layer falls back to legacy overlap checks if no plan is provided. Helper functions re-exported for existing callers.
+- **No schema change.** The `ScanResult` JSON contract is unchanged.
+- **Lightweight.** The planner is heuristic-based and intentionally small. No policy engine or deep semantic analysis.
+
+### Consequences
+- Review attention is now structurally driven by context, not ad-hoc
+- The planner is a natural point to later incorporate provider-backed planning (LLM reasoning about what to focus on)
+- Focus areas and review flags are explicit and testable
+- The JSON contract is unchanged
+- Deterministic checks continue to operate independently
+
+### Deferred concerns
+- LLM-backed plan enrichment (provider integration phase)
+- Plan-influenced risk scoring (plan currently informational only)
+- Deeper memory relevance matching (content-level, not just category-level)
+- Persistent memory storage and retrieval (Phase 2+)
+- Plan-driven finding generation (requires provider reasoning)

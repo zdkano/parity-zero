@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from schemas.findings import Decision, Finding, Severity
 from reviewer.checks import run_deterministic_checks
 from reviewer.models import PRContent, PullRequestContext
+from reviewer.planner import build_review_plan
 from reviewer.reasoning import run_reasoning
 
 # Severity weights used for risk_score derivation.
@@ -97,13 +98,16 @@ def analyse(
     file_contents = ctx.pr_content.to_dict()
     findings: list[Finding] = []
 
+    # -- Build structured review plan (ADR-021) --
+    review_plan = build_review_plan(ctx)
+
     # -- Deterministic support layer (ADR-013) --
     findings.extend(run_deterministic_checks(file_contents))
 
-    # -- Contextual review — primary review path (ADR-014, ADR-019) --
-    # The reasoning layer receives the full PullRequestContext so it can
-    # consume baseline profile and review memory for context-aware notes.
-    reasoning_result = run_reasoning(ctx)
+    # -- Contextual review — primary review path (ADR-014, ADR-019, ADR-021) --
+    # The reasoning layer receives the full PullRequestContext and the
+    # structured review plan so it can produce plan-driven contextual notes.
+    reasoning_result = run_reasoning(ctx, plan=review_plan)
     findings.extend(reasoning_result.findings)
 
     return AnalysisResult(

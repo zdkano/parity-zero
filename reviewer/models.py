@@ -184,6 +184,51 @@ class ReviewMemory:
 
 
 # ======================================================================
+# Review plan (ADR-021)
+# ======================================================================
+
+
+@dataclass
+class ReviewPlan:
+    """Structured review plan derived from PR delta, baseline, and memory.
+
+    The review plan bridges raw context and contextual review reasoning.
+    It captures which areas of the PR warrant elevated review attention
+    based on path overlap, baseline awareness, and historical memory.
+
+    The plan **guides** review attention — it does not claim vulnerabilities
+    or produce findings directly.
+
+    Phase 1: lightweight, heuristic-based plan derivation.  Later phases
+    will incorporate provider-backed reasoning into plan construction.
+    """
+
+    focus_areas: list[str] = field(default_factory=list)
+    """Finding categories relevant to this PR (e.g. 'authorization')."""
+
+    review_flags: list[str] = field(default_factory=list)
+    """Elevated attention flags (e.g. 'touches_sensitive_path')."""
+
+    sensitive_paths_touched: list[str] = field(default_factory=list)
+    """Changed paths that overlap with sensitive areas."""
+
+    auth_paths_touched: list[str] = field(default_factory=list)
+    """Changed paths that overlap with auth-related areas."""
+
+    relevant_memory_categories: list[str] = field(default_factory=list)
+    """Historical review memory categories relevant to this PR."""
+
+    framework_context: list[str] = field(default_factory=list)
+    """Frameworks detected in the repository baseline."""
+
+    auth_pattern_context: list[str] = field(default_factory=list)
+    """Auth patterns detected in the repository baseline."""
+
+    reviewer_guidance: list[str] = field(default_factory=list)
+    """Accumulated guidance notes for downstream reasoning stages."""
+
+
+# ======================================================================
 # Pull request context (ADR-018)
 # ======================================================================
 
