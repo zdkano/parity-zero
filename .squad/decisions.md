@@ -1855,3 +1855,94 @@ ADR-036 added run summary metadata columns (`provider_invoked`, `provider_gate_d
 - Covers: old-schema upgrade, save/retrieve after upgrade, pre-existing row defaults, coexistence of legacy and new rows, fresh DB unchanged, migration idempotence (multiple reopens, direct helper calls), API behaviour on upgraded DB (ingest + retrieval), partial migration scenarios
 - All 1143 existing tests continue to pass unchanged
 - Total: 1160 tests pass
+
+---
+
+## ADR-038: Evaluation and benchmarking layer for reviewer quality
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+Build a structured evaluation and benchmarking layer to make reviewer quality measurable, comparable, and tunable across provider modes.
+
+### Context
+The reviewer pipeline is functionally complete but there was no systematic way to:
+- evaluate whether the reviewer is useful on representative PRs
+- compare reviewer behavior across disabled/mock provider modes
+- verify output quality beyond "pipeline worked"
+- codify quality expectations as enforceable assertions
+- detect regressions in noise levels, trust boundaries, or output structure
+
+### What changed
+
+#### Scenario model enrichment
+- `ValidationScenario` gains: `tags` (classification), `security_focus` (expected focus areas), `provider_value_expected` (whether provider should add value)
+- `ExpectedBehavior` gains: `max_concerns`, `max_observations`, `has_provider_notes`, `expected_sections`, `absent_sections`
+- New helpers: `get_scenarios_by_tag()`, `list_tags()`
+
+#### Expanded evaluation corpus
+Corpus expanded from 7 to 13 curated scenarios:
+- **pem-key-in-config** — PEM private key detection (deterministic secrets)
+- **plain-refactor** — pure refactoring with no security signals (low-signal)
+- **provider-gated-out** — mock provider present but gate correctly skips (gate validation)
+- **mixed-auth-and-tests** — auth code mixed with test files (mixed-signal)
+- **dependency-lockfile** — lockfile-only changes (low-signal)
+- **input-validation-risk** — unsafe input patterns in auth-adjacent code (provider-value)
+
+#### Provider comparison
+- `run_comparison(scenario, modes)` runs the same scenario across provider modes
+- `ComparisonResult` captures: per-mode summaries, findings stability, decision stability, provider observation/notes contribution, gate differences, trust boundary status
+- `format_comparison_summary()` produces human-readable comparison output
+
+#### Output quality assertions
+- No empty findings in markdown when findings exist
+- Provider notes section absent when no notes
+- Observations reference changed files
+- No duplicate finding title+file pairs
+- Markdown conciseness bound for no-findings scenarios
+- Provider notes bounded and never create findings
+- No provider notes when gate is skipped
+
+#### Low-noise checks
+- Low-signal scenarios produce no findings, concerns, observations, or provider notes
+- Gate-skip scenarios actually skip provider invocation
+- Deterministic scenarios detect findings without provider
+
+#### CLI entrypoint
+- `python -m reviewer.validation` runs all scenarios
+- `python -m reviewer.validation --list` lists corpus with metadata
+- `python -m reviewer.validation --summary` prints evaluation table
+- `python -m reviewer.validation --compare <id>` compares across modes
+- `python -m reviewer.validation --tag <tag>` lists by tag
+- `python -m reviewer.validation <id>` runs single scenario
+
+### What did NOT change
+- ScanResult JSON contract — unchanged
+- Scoring model — unchanged (findings-only, deterministic)
+- Trust boundaries — unchanged (provider output remains non-authoritative)
+- Provider implementations — unchanged
+- Existing pipeline behavior — unchanged
+- Backend persistence — unchanged
+- Auth model — unchanged
+
+### Design decisions
+- **Scenario metadata is additive** — existing scenarios gain tags/focus but no behavior changes
+- **Comparison is local-test-safe** — only disabled/mock modes; no live credentials required
+- **Quality assertions are heuristic** — they encode practical expectations, not scientific benchmarks
+- **Corpus remains curated** — prefer fewer high-value scenarios over many shallow ones
+- **CLI is minimal** — small utility for running/comparing; not a benchmark platform
+
+### Deferred concerns
+- **Live provider comparison** — comparing with real API calls to github-models/anthropic/openai is structurally supported but deferred; requires credentials and may be non-deterministic
+- **Benchmark scoring/metrics** — quantitative precision/recall or F1-style metrics are intentionally not built; current evaluation is assertion-based
+- **Corpus versioning** — no version tagging for corpus snapshots; comparison is point-in-time
+- **Performance measurement** — timing and resource usage tracking deferred
+- **Scenario generation from real PRs** — automatic scenario creation from production data deferred
+- **Quality assertions will evolve** — current heuristics are starting points that will be refined as the reviewer improves
+
+### Test coverage
+- 97 new tests in `tests/test_evaluation.py`
+- Covers: scenario metadata/tags/expectations, expanded corpus loading/determinism, comparison mode (disabled vs mock), output quality assertions, low-noise/usefulness checks, trust boundaries across expanded corpus, ScanResult contract stability, all 13 scenarios pass integration tests, cross-scenario comparison trust boundaries
+- All 1160 existing tests continue to pass unchanged
+- Total: 1263 tests pass (after including expanded parametrized scenarios in existing test file)

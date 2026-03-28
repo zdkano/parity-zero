@@ -126,6 +126,7 @@ The scoring function is deterministic. It does not incorporate provider output, 
 - Provider gating based on context richness
 - ReviewTrace for internal traceability
 - Validation scenario harness
+- Evaluation and benchmarking layer (ADR-038) — 13 curated scenarios, provider comparison, output-quality assertions
 
 ### Intentionally Deferred
 - Provider-generated findings (provider output does not create findings today)

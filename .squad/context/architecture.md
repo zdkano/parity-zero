@@ -278,32 +278,39 @@ analytics surfaces may consume trace data.
 
 ---
 
-### 6g. PR Validation Harness (ADR-032)
+### 6g. PR Validation Harness (ADR-032, ADR-038)
 
-A lightweight scenario-based testing framework for validating reviewer
-behavior across representative pull request situations.
+A lightweight scenario-based testing and evaluation framework for validating
+reviewer behavior across representative pull request situations.
 
 Components:
 - **ValidationScenario** — pairs synthetic PR inputs (changed files,
   baseline profile, review memory, provider mode) with declarative
-  ``ExpectedBehavior`` assertions
-- **Curated corpus** — 7 representative scenarios covering auth-sensitive,
+  ``ExpectedBehavior`` assertions.  Scenarios carry metadata: tags,
+  security focus areas, and provider-value expectations (ADR-038).
+- **Curated corpus** — 13 representative scenarios covering auth-sensitive,
   config, trivial/docs, memory-influenced, deterministic-only,
-  provider-enriched, and low-noise review paths
+  provider-enriched, low-noise, mixed-signal, dependency, gate-skip,
+  and input-validation review paths
 - **Validation runner** (``run_scenario()``) — executes a scenario through
   the full reviewer pipeline and evaluates expectations as structured
   ``Assertion`` results
+- **Comparison runner** (``run_comparison()``) — runs the same scenario
+  across provider modes (disabled/mock) and produces a structured
+  ``ComparisonResult`` with cross-mode diffs (ADR-038)
 
 The harness validates: provider gate behavior, findings count and category
 presence/absence, concern and observation generation, markdown output
-sections, trust-boundary invariants, and ScanResult contract stability.
+sections, trust-boundary invariants, output quality, and ScanResult
+contract stability.
 
 The harness does **not** change: ScanResult, scoring, decision logic,
 or the reviewer pipeline.  It uses only ``DisabledProvider`` and
 ``MockProvider`` — no live credentials required.
 
-Phase 1 status: initial corpus of 7 scenarios with 66 focused tests.
-The corpus will grow as the reviewer pipeline matures.
+Phase 1 status: corpus of 13 scenarios with evaluation and comparison
+support.  Quality assertions enforce practical expectations about noise
+levels, trust boundaries, and output structure.
 
 ---
 

@@ -28,6 +28,7 @@ parity-zero is in active early development. The reviewer pipeline is functional 
 - GitHub Models, Anthropic, and OpenAI provider support
 - internal reviewer traceability (ReviewTrace)
 - PR validation scenario harness
+- **evaluation and benchmarking layer** — 13 curated scenarios, provider comparison, output-quality assertions (ADR-038)
 - stable ScanResult JSON contract
 - **real PR file content loading** from workspace checkout
 - **skipped-file awareness** — changed files that are deleted, binary, too large, or unreadable are tracked with path and reason metadata (ADR-036)
@@ -58,7 +59,7 @@ All providers are disabled by default. Provider output is **non-authoritative** 
 # Clone and install
 pip install -r requirements.txt
 
-# Run all tests (~1100 tests)
+# Run all tests (~1260 tests)
 python -m pytest tests/ -v
 
 # Run the reviewer locally with disabled provider
@@ -69,6 +70,12 @@ python -c "from reviewer.action import mock_run; r = mock_run(); print(r['markdo
 
 # Run validation scenarios
 python -m pytest tests/test_validation_harness.py -v
+
+# Run evaluation summary
+python -m reviewer.validation --summary
+
+# Compare a scenario across provider modes
+python -m reviewer.validation --compare auth-sensitive
 ```
 
 See [Getting Started](docs/getting-started.md) for full setup instructions.
@@ -125,7 +132,8 @@ See [Backend Getting Started](docs/backend-getting-started.md) and [API Referenc
 | [API Reference](docs/api.md) | Endpoints, request/response shapes, auth, examples |
 | [Trust Model](docs/trust-model.md) | What outputs mean, what is authoritative, what is not |
 | [GitHub Action Setup](docs/github-action-setup.md) | Workflow YAML examples, secrets, permissions, backend integration |
-| [Validation Harness](docs/validation.md) | Scenario-based testing and quality regression |
+| [Validation Harness](docs/validation.md) | Scenario-based testing, evaluation, and provider comparison |
+| [Quality Rubric](docs/quality-rubric.md) | Reviewer quality expectations and what is enforced |
 | [Architecture Overview](docs/architecture-overview.md) | High-level pipeline for contributors |
 | [Release & Packaging](docs/release-packaging.md) | Marketplace direction and current packaging state |
 
