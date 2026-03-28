@@ -2,10 +2,14 @@
 
 ## Summary
 
-parity-zero is designed as a reviewer-first, control-plane-ready system.
+parity-zero is designed as a **repository-aware, reviewer-first** system that
+reasons about pull request changes in the context of a repository security
+baseline and persistent review memory.
 
-The initial implementation focuses on a GitHub-native reviewer that emits structured findings.
-A thin backend and later dashboard are built around that contract.
+The architecture reflects the corrected product direction: contextual security
+review is the primary value, with deterministic checks as a supporting signal
+layer.  A thin backend and later dashboard are built around the structured
+findings contract.
 
 ---
 
@@ -16,44 +20,80 @@ Runs on pull request events and coordinates the review workflow.
 
 Responsibilities:
 - gather changed files and metadata
-- invoke analysis logic
+- invoke baseline profiling (or load existing baseline)
+- build PR review context combining delta, baseline, and memory
+- invoke the contextual review engine
 - produce markdown review output
 - emit structured JSON
 - optionally send output to a central backend
 
 ---
 
-### 2. Analysis Engine
-Evaluates pull request changes for security issues.
+### 2. Baseline Repository Profiler
+Builds a **repository security profile** from the repository contents.
 
-This combines:
-- LLM-led contextual review
-- narrow deterministic guardrails where they improve reviewer quality
+Responsibilities:
+- detect languages and frameworks in use
+- identify sensitive paths and directories
+- detect authentication and authorisation patterns (coarse)
+- note security-relevant conventions
+- produce a RepoSecurityProfile as structured output
 
-The engine accepts `PRContent` (ADR-011) as its primary input, providing a
-clean seam between file discovery and analysis.  Internally it converts to
-`dict[str, str]` for modules that still use that interface.
+This is a **baseline context generator**, not a full scanner.  It provides
+the foundation for context-aware PR review.
 
-The analysis engine is not expected to replace traditional scanners.
-It is intended to provide focused review value in the PR workflow.
-
-Later considerations:
-- Checks and reasoning may later operate on `PRFile` instances directly
-- `PRContent` construction should eventually be driven by the GitHub API response
-- `PRFile` may carry metadata (file status, language, diff hunks) in later phases
+Phase 1 status: stub implementation with basic language/framework/sensitive-path
+detection.  Future iterations will enrich this with deeper analysis.
 
 ---
 
-### 3. Deterministic Checks
-Used only where small, high-confidence guardrails reduce reviewer noise or
-catch obvious issues in changed code.
+### 3. PR Context Builder
+Combines PR delta information with repository context for review.
+
+Responsibilities:
+- carry changed files (PRContent) from the PR
+- attach baseline repository profile
+- attach review memory (when available)
+- present a unified context object to the review engine
+
+This is the primary input to the contextual review engine and establishes
+the seam between file discovery and context-aware analysis.
+
+---
+
+### 4. Contextual Security Review Engine (Analysis Engine)
+The **primary review path**.  Evaluates pull request changes for security
+issues using contextual reasoning.
+
+This combines:
+- **Contextual review** — the main path, consuming PR delta + baseline
+  profile + review memory to reason about security implications
+- **Deterministic support checks** — narrow high-signal guardrails that
+  provide supporting signals to the contextual review
+
+The engine accepts `PullRequestContext` (or `PRContent` for backward
+compatibility) as its input.  It merges findings from both strategies,
+deduplicates, derives a decision/risk_score, and returns structured results.
+
+The contextual review engine is intended to reason like a security engineer —
+not to pattern-match like a scanner.
+
+Later considerations:
+- Real LLM integration for contextual review
+- Baseline profile influencing review focus areas
+- Review memory informing recurring pattern detection
+
+---
+
+### 5. Deterministic Support Checks
+A **supporting signal layer** providing narrow, high-confidence guardrails.
 
 Phase 1 categories:
 - **insecure configuration** — CORS wildcards, debug mode, security disablement
 - **secrets** — AWS access key IDs, PEM private keys, GitHub tokens (ADR-010)
 
-These checks are intentionally narrow in Phase 1.
-They support the reviewer but do not define the product.
+These checks are intentionally narrow.  They support the contextual review
+engine but **do not define the product**.
 
 Later considerations:
 - Additional provider-specific secret patterns may be added incrementally
@@ -62,22 +102,43 @@ Later considerations:
 
 ---
 
-### 4. Reasoning Layer
-This is the primary Phase 1 analysis path.
+### 6. Reasoning Layer (Contextual Review)
+The **primary analysis path** for contextual security review.
 
-Used for:
-- contextual interpretation
-- summarisation
-- developer-friendly explanation
-- ambiguous logic review
-- prioritisation support
+This layer will eventually consume:
+- PR delta (changed files and their content)
+- baseline repository security profile
+- deterministic support signals
+- review memory and prior findings themes
+- policy/intent context (later phases)
 
-This layer should drive the reviewer experience in Phase 1 while staying
-grounded in changed-code review rather than broad scanner-style coverage.
+It produces:
+- contextual findings with reasoning
+- reviewer notes and observations
+- confidence-weighted assessments
+
+Phase 1 status: structured stub.  LLM integration will be added in a
+subsequent iteration.  The stub makes the layer's intended role and
+interface clear.
 
 ---
 
-### 5. Central Ingestion API
+### 7. Memory / Context Store
+Persistent storage for review context that accumulates over time.
+
+Tracks:
+- baseline repository profiles (snapshots)
+- prior review findings themes
+- recurring issue patterns per repo
+- accepted risks or exceptions (later phases)
+- evolution of repository security posture
+
+Phase 1 status: foundational models (ReviewMemory, ReviewMemoryEntry) are
+defined.  Full persistence is deferred to later phases.
+
+---
+
+### 8. Central Ingestion API
 Receives structured scan output from reviewer runs.
 
 Responsibilities:
@@ -85,10 +146,11 @@ Responsibilities:
 - store scans and findings
 - support retrieval and aggregation later
 - establish a stable contract between reviewer and control plane
+- feed into persistent memory store
 
 ---
 
-### 6. Findings Store
+### 9. Findings Store
 Stores scan metadata and structured findings.
 
 The initial choice is Postgres because it supports:
@@ -100,7 +162,7 @@ The initial choice is Postgres because it supports:
 
 ---
 
-### 7. Control Plane Dashboard
+### 10. Control Plane Dashboard
 A later-phase UI for security teams.
 
 Responsibilities:
@@ -119,12 +181,21 @@ This is intentionally not the first build priority.
 ### Reviewer-first
 The system should remain useful even if the dashboard does not yet exist.
 
+### Context-aware review over stateless scanning
+The reviewer should reason about changes in the context of the repository,
+not scan files in isolation.
+
 ### Structured outputs first
 The reviewer output contract is central.
 All downstream components depend on it.
 
+### Deterministic checks support, not define
+Deterministic checks are a supporting signal layer.  The primary review
+value comes from contextual reasoning over the PR delta and repo baseline.
+
 ### Loose coupling
-The reviewer and control plane should be linked by structured contracts, not hidden implementation dependencies.
+The reviewer and control plane should be linked by structured contracts, not
+hidden implementation dependencies.
 
 ### Simplicity over platform sprawl
 The early system should remain easy to understand and easy to modify.
@@ -133,20 +204,29 @@ The early system should remain easy to understand and easy to modify.
 
 ## High-level architecture diagram
 
-```mermaid id="jy2b2v"
+```mermaid id="arch-v2"
 flowchart LR
-    A[Developer or Coding Agent] --> B[GitHub Pull Request]
-    B --> C[GitHub Action Reviewer]
+    subgraph Baseline
+        R[Repository] --> BP[Baseline Profiler]
+        BP --> RSP[Repo Security Profile / Memory]
+    end
 
-    C --> D[Analysis Engine]
-    D --> E[Narrow Guardrails]
-    D --> F[LLM Review Layer]
+    subgraph PR_Review[PR Review]
+        PR[Pull Request] --> PCB[PR Context Builder]
+        RSP --> PCB
+        PCB --> CRE[Contextual Security Review Engine]
+        PCB --> DSC[Deterministic Support Checks]
+        DSC --> CRE
+    end
 
-    E --> G[Structured Findings JSON]
-    F --> G
+    subgraph Output
+        CRE --> SFJ[Structured Findings JSON]
+        SFJ --> PRO[PR Comment / Check Output]
+        SFJ --> ING[Central Ingestion API]
+    end
 
-    G --> H[PR Comment / Check Output]
-    G --> I[Central Ingestion API]
-
-    I --> J[(Postgres Findings Store)]
-    J --> K[Control Plane Dashboard]
+    subgraph Persistence
+        ING --> MS[Memory Store / Control Plane]
+        MS --> RSP
+    end
+```

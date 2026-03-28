@@ -286,3 +286,148 @@ The current Phase 1 risk scoring model (severity weights: high=25, medium=15, lo
 - Distinction between `WARN` and future `BLOCK` behaviour needs explicit policy rules
 - Policy-mode-aware decisioning (e.g. advisory vs enforcement) is a Phase 3 concern
 - Threshold values should be validated against real reviewer output data
+
+---
+
+## ADR-013: Deterministic checks are a supporting signal layer, not the primary product value
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+Deterministic checks (secrets, insecure configuration patterns) are repositioned as a **supporting signal layer**.  The primary product value comes from contextual, repo-aware security review.
+
+### Rationale
+- The product thesis is an AI reviewer that reasons like a security engineer, not a deterministic scanner with an AI wrapper
+- Deterministic checks provide high-confidence anchoring signals but cannot detect architectural issues, logic bugs, or context-dependent vulnerabilities
+- Leaning too heavily into deterministic checks risks drifting the product into "just another scanner" territory
+- Contextual review over PR delta + repo baseline is the differentiating value
+
+### Consequences
+- Existing deterministic checks (insecure configuration, secrets) remain operational as early confidence anchors
+- New deterministic checks should only be added when they provide clear, high-signal value
+- The review engine architecture explicitly positions deterministic checks as one input to the contextual review engine
+- Product and engineering decisions should prioritise contextual review capabilities over expanding regex checks
+
+---
+
+## ADR-014: parity-zero is moving toward a repo-aware contextual review model
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+parity-zero is evolving toward a **repository-aware contextual review model** where PR reviews operate in the context of a repository security baseline and accumulated review memory.
+
+### Rationale
+- Stateless, file-by-file scanning misses architectural context, convention violations, and repo-specific security patterns
+- A security engineer reviews code with knowledge of the codebase — parity-zero should too
+- Repository-aware review reduces false positives and increases finding relevance
+- This direction differentiates parity-zero from commodity scanning tools
+
+### Consequences
+- A baseline repository profiler is being introduced to build repo security profiles
+- A PR context builder combines changed files with baseline context for review
+- The review engine is architecturally positioned to consume repo context
+- Full implementation is incremental — Phase 1 introduces foundations, not complete functionality
+
+---
+
+## ADR-015: Baseline repository review provides context for PR review
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+A **baseline repository profiler** generates a lightweight repository security profile that provides context for subsequent PR reviews.
+
+### Rationale
+- PR review in isolation cannot reason about the broader repository context
+- Detecting languages, frameworks, sensitive paths, and auth patterns enables focused review
+- A baseline profile is a prerequisite for context-aware reasoning
+- The profiler should be lightweight and enrichable over time, not a comprehensive scanner
+
+### Consequences
+- `RepoSecurityProfile` and `BaselineScanResult` models are introduced
+- A baseline profiler stub (`reviewer/baseline.py`) performs basic detection
+- Phase 1 detection is intentionally minimal: languages, frameworks, sensitive paths
+- Later iterations will enrich profiling with deeper analysis
+- The profiler is a context generator, not a findings generator
+
+---
+
+## ADR-016: Persistent security memory/context is a first-class design requirement
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+Persistent security memory is a **first-class architectural concept** in parity-zero.  Review context should accumulate over time so that later reviews become increasingly repo-aware.
+
+### Rationale
+- Stateless reviews lose knowledge between runs
+- Accumulated context enables detection of recurring patterns, posture drift, and convention violations
+- Memory enables the reviewer to avoid repeating false positives on known-safe patterns
+- This is a prerequisite for the reviewer to behave like a security engineer who knows the codebase
+
+### Consequences
+- `ReviewMemory` and `ReviewMemoryEntry` models are introduced as foundational structures
+- Full persistence (database-backed storage and retrieval) is deferred to Phase 2+
+- Phase 1 defines the data shapes and integration points
+- `PullRequestContext` carries an optional memory reference for future use
+
+### Future memory requirements
+When persistent memory is fully implemented, it should track:
+- baseline profile snapshots (versioned)
+- prior findings themes and categories per repo
+- accepted risks or exceptions
+- recurring issue patterns by repo
+- evolution of repository security posture over time
+- policy/intent context where available
+
+---
+
+## ADR-017: Phase 1 risk scoring is intentionally coarse and temporary (reaffirmed)
+
+**Status:** Accepted (reaffirmed)  
+**Date:** 2026-03-28
+
+### Decision
+Reaffirms ADR-012.  The Phase 1 risk scoring model is intentionally coarse and temporary.  It is adequate for flow validation but not for production use.
+
+### Rationale
+- Same as ADR-012
+- This reaffirmation explicitly captures that later scoring should account for:
+  - confidence influence on effective severity
+  - repeated low-severity accumulation (diminishing returns)
+  - policy-aware behaviour (advisory vs enforcement)
+  - future WARN vs BLOCK distinction
+  - repo sensitivity/context influence on thresholds
+  - baseline-aware scoring adjustments
+
+### Consequences
+- No changes to the current scoring model in this iteration
+- The scoring model will need refinement as contextual review matures
+- Policy-mode-aware decisioning remains a Phase 3 concern
+
+---
+
+## ADR-018: PullRequestContext combines PR delta with repo context and memory
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+A `PullRequestContext` model is introduced to combine PR delta information (changed files), baseline repository profile, and review memory into a single context object for the review engine.
+
+### Rationale
+- The review engine needs a unified context object rather than multiple separate inputs
+- This establishes the seam for future enrichment without changing the engine signature
+- Backward compatibility with `PRContent` and `dict[str, str]` is preserved
+- The context builder pattern separates concern of context assembly from analysis
+
+### Consequences
+- `PullRequestContext` carries `PRContent`, optional `RepoSecurityProfile`, and optional `ReviewMemory`
+- The engine accepts `PullRequestContext`, `PRContent`, or `dict[str, str]` for backward compatibility
+- Phase 1 baseline and memory fields are typically None — they become populated as those capabilities mature
+- No changes to the ScanResult JSON contract
