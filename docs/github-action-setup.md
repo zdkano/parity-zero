@@ -278,8 +278,6 @@ You can combine backend integration with any provider mode:
           api_url: ${{ secrets.PARITY_ZERO_API_URL }}
           api_token: ${{ secrets.PARITY_ZERO_API_TOKEN }}
         env:
-          PARITY_ZERO_API_URL: ${{ secrets.PARITY_ZERO_API_URL }}
-          PARITY_ZERO_API_TOKEN: ${{ secrets.PARITY_ZERO_API_TOKEN }}
           PARITY_REASONING_PROVIDER: github-models
 ```
 

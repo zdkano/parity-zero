@@ -13,6 +13,7 @@ Validates:
 import json
 import os
 from unittest.mock import MagicMock, patch
+import urllib.error
 
 import pytest
 
@@ -147,7 +148,6 @@ class TestBackendIngestErrors:
         monkeypatch.setenv("PARITY_ZERO_API_URL", "http://localhost:8000")
         monkeypatch.setenv("PARITY_ZERO_API_TOKEN", "token")
 
-        import urllib.error
         mock_urlopen.side_effect = urllib.error.HTTPError(
             "http://localhost:8000/ingest", 401, "Unauthorized", {}, None
         )
@@ -160,7 +160,6 @@ class TestBackendIngestErrors:
         monkeypatch.setenv("PARITY_ZERO_API_URL", "http://localhost:8000")
         monkeypatch.setenv("PARITY_ZERO_API_TOKEN", "token")
 
-        import urllib.error
         mock_urlopen.side_effect = urllib.error.URLError("Connection refused")
 
         result = _send_to_backend(_make_scan_result())

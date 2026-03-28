@@ -74,8 +74,12 @@ class ScanStore:
         store = ScanStore()           # uses PARITY_ZERO_DB_PATH or default
         store = ScanStore(":memory:") # in-memory for tests
 
-    The store creates tables on first use and is safe for single-writer
-    concurrent reads (SQLite default).
+    The store creates tables on first use.  ``check_same_thread=False``
+    is set to support FastAPI's async request handling (ASGI servers may
+    dispatch requests across threads).  SQLite's WAL mode provides
+    concurrent read safety.  Write operations are serialised by SQLite
+    internally, but this store is designed for single-writer use.  For
+    high-concurrency production deployments, migrate to Postgres.
     """
 
     def __init__(self, db_path: str | None = None) -> None:
