@@ -204,9 +204,14 @@ def run() -> None:
 
     decision, risk_score = derive_decision_and_risk(analysis.findings)
 
+    # ScanResult requires pr_number >= 1.  When running outside a PR
+    # context (e.g. locally or in a non-PR workflow), use 1 as a safe
+    # fallback so the structured output is always valid.
+    pr_number = context["pr_number"] if context["pr_number"] >= 1 else 1
+
     result = ScanResult(
         repo=context["repo"],
-        pr_number=context["pr_number"],
+        pr_number=pr_number,
         commit_sha=context["commit_sha"],
         ref=context["ref"],
         decision=decision,
