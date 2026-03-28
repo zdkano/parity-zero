@@ -31,7 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from schemas.findings import Finding
-from reviewer.models import PullRequestContext, RepoSecurityProfile, ReviewMemory, ReviewPlan
+from reviewer.models import PullRequestContext, RepoSecurityProfile, ReviewConcern, ReviewMemory, ReviewPlan
 
 # Canonical path analysis helpers live in planner.py (ADR-021).
 # Re-exported here for backward compatibility with existing callers/tests.
@@ -41,6 +41,7 @@ from reviewer.planner import (  # noqa: F401
     infer_path_categories as _infer_path_categories,
     relevant_memory_entries as _relevant_memory_entries,
     build_review_plan,
+    generate_concerns,
 )
 
 
@@ -57,10 +58,14 @@ class ReasoningResult:
             delta that do not rise to the level of a finding but may be
             useful in the PR summary.  These are informational only and
             do not affect decision or risk_score.
+        concerns: Plan-informed review concerns — areas that may deserve
+            closer security attention based on context.  Distinct from
+            findings; do not affect scoring.  See ADR-022.
     """
 
     findings: list[Finding] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    concerns: list[ReviewConcern] = field(default_factory=list)
 
 
 def run_reasoning(
@@ -112,8 +117,11 @@ def run_reasoning(
     )
 
     # -- Plan-driven contextual notes (ADR-021) --
+    # -- Plan-driven contextual concerns (ADR-022) --
+    concerns: list[ReviewConcern] = []
     if plan is not None:
         _add_plan_notes(notes, plan)
+        concerns = generate_concerns(plan, ctx)
     else:
         # Legacy path: derive notes directly from context overlap
         changed_paths = ctx.pr_content.paths
@@ -122,7 +130,7 @@ def run_reasoning(
         if ctx.has_memory and ctx.memory is not None:
             _add_memory_notes(notes, changed_paths, ctx.memory)
 
-    return ReasoningResult(findings=[], notes=notes)
+    return ReasoningResult(findings=[], notes=notes, concerns=concerns)
 
 
 # ======================================================================

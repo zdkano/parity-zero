@@ -12,7 +12,12 @@ or produce findings.  It bridges raw context and the contextual review
 reasoning layer, replacing ad-hoc overlap checks with a single, testable
 planning step.
 
-See ADR-021 for the decision to introduce this layer.
+Additionally, produces **review concerns** (ADR-022) — lightweight
+contextual observations about areas deserving closer attention, derived
+from the plan, baseline, and memory.  Concerns are distinct from
+findings and do not affect scoring.
+
+See ADR-021 for the review plan layer, ADR-022 for review concerns.
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ from __future__ import annotations
 from reviewer.models import (
     PullRequestContext,
     RepoSecurityProfile,
+    ReviewConcern,
     ReviewMemory,
     ReviewPlan,
 )
@@ -342,3 +348,160 @@ def relevant_memory_entries(
         entry for entry in memory.entries
         if entry.category in path_categories
     ]
+
+
+# ======================================================================
+# Concern generation (ADR-022)
+# ======================================================================
+
+# Maximum number of items shown in concern context (paths, patterns, etc.)
+_MAX_CONCERN_CONTEXT_ITEMS = 5
+_MAX_PATTERN_DISPLAY_ITEMS = 3
+
+
+def generate_concerns(
+    plan: ReviewPlan,
+    ctx: PullRequestContext,
+) -> list[ReviewConcern]:
+    """Generate contextual review concerns from the review plan and context.
+
+    Concerns represent areas that **may deserve closer security attention**
+    based on plan signals, baseline context, and review memory.  They are
+    not proven findings — they preserve uncertainty honestly.
+
+    Concern generation rules:
+    - sensitive path touched + auth area touched → auth concern
+    - baseline auth patterns + auth paths changed → consistency concern
+    - memory categories matching touched areas → historical pattern concern
+    - framework context + sensitive paths → framework convention concern
+
+    Concerns are bounded and filtered to avoid noise.  If the plan carries
+    no meaningful signals, no concerns are generated.
+
+    Args:
+        plan: The structured ReviewPlan.
+        ctx: The PullRequestContext for additional context.
+
+    Returns:
+        A list of ReviewConcern instances, possibly empty.
+    """
+    concerns: list[ReviewConcern] = []
+
+    # -- Auth area concern: sensitive + auth paths touched --
+    if plan.auth_paths_touched and plan.sensitive_paths_touched:
+        overlap = sorted(set(plan.auth_paths_touched) & set(plan.sensitive_paths_touched))
+        all_related = sorted(set(plan.auth_paths_touched) | set(plan.sensitive_paths_touched))
+        concerns.append(ReviewConcern(
+            category="authentication",
+            title="Auth-sensitive area modified",
+            summary=(
+                "This PR modifies paths that are both authentication-related "
+                "and identified as sensitive. Changes in these areas may affect "
+                "access control boundaries."
+            ),
+            confidence="medium" if overlap else "low",
+            basis="sensitive_path_overlap+auth_area",
+            related_paths=all_related[:_MAX_CONCERN_CONTEXT_ITEMS],
+        ))
+
+    # -- Auth consistency concern: baseline auth patterns + auth paths --
+    if plan.auth_pattern_context and plan.auth_paths_touched:
+        patterns = ", ".join(plan.auth_pattern_context[:_MAX_PATTERN_DISPLAY_ITEMS])
+        concerns.append(ReviewConcern(
+            category="authentication",
+            title="Auth pattern consistency",
+            summary=(
+                f"Repository uses auth patterns ({patterns}). "
+                f"Changes to auth-related paths should be reviewed for "
+                f"consistency with existing mechanisms."
+            ),
+            confidence="medium",
+            basis="baseline_auth_pattern+auth_path",
+            related_paths=list(plan.auth_paths_touched[:_MAX_CONCERN_CONTEXT_ITEMS]),
+        ))
+
+    # -- Auth area concern (standalone, no sensitive overlap) --
+    if plan.auth_paths_touched and not plan.sensitive_paths_touched:
+        concerns.append(ReviewConcern(
+            category="authorization",
+            title="Auth-related paths modified",
+            summary=(
+                "This PR modifies authentication or authorization-related paths. "
+                "Verify that access control logic remains correct."
+            ),
+            confidence="low",
+            basis="auth_area",
+            related_paths=list(plan.auth_paths_touched[:_MAX_CONCERN_CONTEXT_ITEMS]),
+        ))
+
+    # -- Sensitive path concern (standalone, no auth overlap) --
+    if plan.sensitive_paths_touched and not plan.auth_paths_touched:
+        concerns.append(ReviewConcern(
+            category="insecure_configuration",
+            title="Sensitive paths modified",
+            summary=(
+                "This PR modifies paths identified as sensitive "
+                "(configuration, deployment, or security-related). "
+                "Review for unintended exposure or weakened controls."
+            ),
+            confidence="low",
+            basis="sensitive_path_overlap",
+            related_paths=list(plan.sensitive_paths_touched[:_MAX_CONCERN_CONTEXT_ITEMS]),
+        ))
+
+    # -- Memory-informed concern: recurring themes relevant to PR --
+    if plan.relevant_memory_categories:
+        cats = ", ".join(plan.relevant_memory_categories[:_MAX_PATTERN_DISPLAY_ITEMS])
+        memory_paths = _paths_for_memory_categories(
+            plan.relevant_memory_categories, ctx.pr_content.paths,
+        )
+        concerns.append(ReviewConcern(
+            category=plan.relevant_memory_categories[0],
+            title="Recurring review theme",
+            summary=(
+                f"Review memory includes prior concerns in: {cats}. "
+                f"This PR touches areas related to these themes — "
+                f"prior patterns may be relevant."
+            ),
+            confidence="low",
+            basis="memory_match",
+            related_paths=memory_paths[:_MAX_CONCERN_CONTEXT_ITEMS],
+        ))
+
+    # -- Framework convention concern: framework + sensitive paths --
+    if plan.framework_context and plan.sensitive_paths_touched:
+        frameworks = ", ".join(plan.framework_context[:_MAX_PATTERN_DISPLAY_ITEMS])
+        concerns.append(ReviewConcern(
+            category="insecure_configuration",
+            title="Framework-sensitive area modified",
+            summary=(
+                f"Repository uses {frameworks}. This PR modifies "
+                f"sensitive paths where framework-specific security "
+                f"conventions may apply."
+            ),
+            confidence="low",
+            basis="framework_context+sensitive_path",
+            related_paths=list(plan.sensitive_paths_touched[:_MAX_CONCERN_CONTEXT_ITEMS]),
+        ))
+
+    return concerns
+
+
+def _paths_for_memory_categories(
+    memory_categories: list[str],
+    changed_paths: list[str],
+) -> list[str]:
+    """Return changed paths that relate to the given memory categories."""
+    path_cats = infer_path_categories(changed_paths)
+    if not path_cats:
+        return []
+    relevant_cats = set(memory_categories) & path_cats
+    if not relevant_cats:
+        return changed_paths[:_MAX_PATTERN_DISPLAY_ITEMS]
+    # Return paths whose inferred categories overlap with memory categories
+    result: list[str] = []
+    for p in changed_paths:
+        p_cats = infer_path_categories([p])
+        if p_cats & relevant_cats:
+            result.append(p)
+    return result

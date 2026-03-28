@@ -199,8 +199,8 @@ def run() -> None:
     # Emit structured JSON to stdout (core contract).
     print(result.model_dump_json(indent=2))
 
-    # Generate and emit markdown summary.
-    markdown = format_markdown(result)
+    # Generate and emit markdown summary (includes concerns if present).
+    markdown = format_markdown(result, concerns=analysis.concerns)
     print("\n--- Markdown Summary ---\n")
     print(markdown)
 
@@ -280,7 +280,7 @@ def mock_run() -> dict:
         findings=analysis.findings,
     )
 
-    markdown = format_markdown(result)
+    markdown = format_markdown(result, concerns=analysis.concerns)
     json_output = result.model_dump_json(indent=2)
 
     return {
@@ -288,6 +288,7 @@ def mock_run() -> dict:
         "markdown": markdown,
         "json": json_output,
         "reasoning_notes": analysis.reasoning_notes,
+        "concerns": analysis.concerns,
     }
 
 
