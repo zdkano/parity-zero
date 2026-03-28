@@ -4,7 +4,9 @@
 # It runs inside a GitHub Actions workflow on pull request events and is
 # responsible for:
 #   - gathering changed files and PR metadata
-#   - invoking the analysis engine (LLM-led review + narrow guardrails)
+#   - building repository-aware review context (baseline + memory)
+#   - invoking the contextual security review engine
+#   - running deterministic support checks as a supporting signal layer
 #   - producing a structured JSON ScanResult (the core contract)
 #   - generating a developer-friendly markdown PR summary
 #   - optionally posting results to the central ingestion API
