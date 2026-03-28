@@ -24,6 +24,7 @@ from schemas.findings import (
 from reviewer.engine import analyse, AnalysisResult, derive_decision_and_risk, _deduplicate
 from reviewer.formatter import format_markdown
 from reviewer.action import _load_event_payload, get_pr_context, get_changed_files, mock_run
+from reviewer.models import PRContent, PRFile
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +88,66 @@ class TestEngine:
         f1 = _make_finding(id="aaa")
         f2 = _make_finding(id="bbb")
         assert len(_deduplicate([f1, f2])) == 2
+
+    def test_analyse_accepts_pr_content(self):
+        """analyse() should accept a PRContent instance."""
+        pr = PRContent.from_dict({"src/app.py": "print('hello')\n"})
+        result = analyse(pr)
+        assert isinstance(result, AnalysisResult)
+
+    def test_analyse_with_pr_content_detects_findings(self):
+        pr = PRContent.from_dict({"config.py": "DEBUG = True\n"})
+        result = analyse(pr)
+        assert len(result.findings) >= 1
+
+    def test_analyse_with_secrets_pr_content(self):
+        pr = PRContent.from_dict({
+            "deploy.py": "KEY = 'AKIAIOSFODNN7EXAMPLE'\n",
+        })
+        result = analyse(pr)
+        assert len(result.findings) == 1
+        assert result.findings[0].category == Category.SECRETS
+
+    def test_analyse_backward_compat_dict(self):
+        """analyse() still accepts a plain dict for backward compatibility."""
+        result = analyse({"config.py": "DEBUG = True\n"})
+        assert len(result.findings) >= 1
+
+
+# ---------------------------------------------------------------------------
+# PRContent model tests
+# ---------------------------------------------------------------------------
+
+class TestPRContent:
+    def test_from_dict_creates_files(self):
+        d = {"a.py": "code_a", "b.py": "code_b"}
+        pr = PRContent.from_dict(d)
+        assert pr.file_count == 2
+        assert set(pr.paths) == {"a.py", "b.py"}
+
+    def test_to_dict_round_trips(self):
+        d = {"src/app.py": "hello\n", "src/config.py": "x = 1\n"}
+        pr = PRContent.from_dict(d)
+        assert pr.to_dict() == d
+
+    def test_empty_dict(self):
+        pr = PRContent.from_dict({})
+        assert pr.file_count == 0
+        assert pr.paths == []
+        assert pr.to_dict() == {}
+
+    def test_prfile_immutable(self):
+        f = PRFile(path="a.py", content="code")
+        assert f.path == "a.py"
+        assert f.content == "code"
+        with pytest.raises(AttributeError):
+            f.path = "b.py"  # type: ignore[misc]
+
+    def test_manual_construction(self):
+        files = [PRFile(path="x.py", content="a"), PRFile(path="y.py", content="b")]
+        pr = PRContent(files=files)
+        assert pr.file_count == 2
+        assert pr.to_dict() == {"x.py": "a", "y.py": "b"}
 
 
 # ---------------------------------------------------------------------------
@@ -600,11 +661,15 @@ class TestMockRun:
         assert "risk_score" in parsed
         assert isinstance(parsed["risk_score"], int)
 
-    def test_findings_all_insecure_configuration(self):
-        """All findings from mock_run come from deterministic config checks."""
+    def test_findings_use_expected_categories(self):
+        """All findings from mock_run come from deterministic checks."""
         output = mock_run()
+        expected_categories = {
+            Category.INSECURE_CONFIGURATION,
+            Category.SECRETS,
+        }
         for finding in output["result"].findings:
-            assert finding.category == Category.INSECURE_CONFIGURATION
+            assert finding.category in expected_categories
 
     def test_reasoning_notes_present(self):
         output = mock_run()

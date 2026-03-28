@@ -15,6 +15,7 @@ from reviewer.checks import (
     _check_cors_wildcard,
     _check_debug_mode,
     _check_security_disablement,
+    _check_secrets,
 )
 
 
@@ -145,6 +146,140 @@ class TestSecurityDisablement:
 
 
 # ---------------------------------------------------------------------------
+# Secrets detection
+# ---------------------------------------------------------------------------
+
+class TestSecretsDetection:
+    """Validate hardcoded secret detection — positive and negative cases."""
+
+    # -- AWS access key ID --
+
+    def test_detects_aws_access_key_id(self):
+        content = "AWS_ACCESS_KEY_ID = 'AKIAIOSFODNN7EXAMPLE'\n"
+        findings = _check_secrets("config.py", content)
+        assert len(findings) == 1
+        assert findings[0].category == Category.SECRETS
+        assert findings[0].severity == Severity.HIGH
+        assert findings[0].confidence == Confidence.HIGH
+        assert "AWS" in findings[0].title
+
+    def test_detects_aws_key_inline(self):
+        content = 'client = boto3.client("s3", aws_access_key_id="AKIAI44QH8DHBEXAMPLE")\n'
+        findings = _check_secrets("deploy.py", content)
+        assert len(findings) == 1
+
+    def test_no_finding_for_non_akia_prefix(self):
+        """Should not flag non-AKIA strings that happen to be 20 chars."""
+        content = "SOME_ID = 'ABCDEFGHIJKLMNOPQRST'\n"
+        findings = _check_secrets("config.py", content)
+        assert findings == []
+
+    def test_no_finding_for_partial_akia(self):
+        """AKIA prefix alone is not enough — needs 16 uppercase chars after."""
+        content = "KEY = 'AKIA_short'\n"
+        findings = _check_secrets("config.py", content)
+        assert findings == []
+
+    # -- Private key headers --
+
+    def test_detects_rsa_private_key(self):
+        content = "-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----\n"
+        findings = _check_secrets("key.pem", content)
+        assert len(findings) == 1
+        assert "private key" in findings[0].title.lower()
+
+    def test_detects_generic_private_key(self):
+        content = "-----BEGIN PRIVATE KEY-----\nMIIE...\n"
+        findings = _check_secrets("cert.pem", content)
+        assert len(findings) == 1
+
+    def test_detects_ec_private_key(self):
+        content = "-----BEGIN EC PRIVATE KEY-----\ndata\n"
+        findings = _check_secrets("ec.pem", content)
+        assert len(findings) == 1
+
+    def test_detects_openssh_private_key(self):
+        content = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3Bl...\n"
+        findings = _check_secrets("id_ed25519", content)
+        assert len(findings) == 1
+
+    def test_no_finding_for_public_key(self):
+        content = "-----BEGIN PUBLIC KEY-----\nMIIB...\n"
+        findings = _check_secrets("pub.pem", content)
+        assert findings == []
+
+    def test_no_finding_for_certificate(self):
+        content = "-----BEGIN CERTIFICATE-----\nMIID...\n"
+        findings = _check_secrets("cert.crt", content)
+        assert findings == []
+
+    # -- GitHub tokens --
+
+    def test_detects_github_personal_access_token(self):
+        content = "GITHUB_TOKEN = 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij'\n"
+        findings = _check_secrets("ci.py", content)
+        assert len(findings) == 1
+        assert "GitHub" in findings[0].title
+
+    def test_detects_github_app_token(self):
+        content = "token = 'ghs_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij'\n"
+        findings = _check_secrets("auth.py", content)
+        assert len(findings) == 1
+
+    def test_no_finding_for_short_gh_prefix(self):
+        """Token must have exactly 36 chars after ghp_/ghs_ prefix."""
+        content = "token = 'ghp_short'\n"
+        findings = _check_secrets("config.py", content)
+        assert findings == []
+
+    def test_no_finding_for_gho_prefix(self):
+        """Only ghp_ and ghs_ prefixes are targeted."""
+        content = "token = 'gho_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij'\n"
+        findings = _check_secrets("config.py", content)
+        assert findings == []
+
+    # -- General negative cases --
+
+    def test_no_finding_for_clean_file(self):
+        content = "APP_NAME = 'my-app'\nPORT = 8080\n"
+        findings = _check_secrets("config.py", content)
+        assert findings == []
+
+    def test_no_finding_for_placeholder_secret(self):
+        """Generic placeholder strings should not be flagged."""
+        content = "SECRET_KEY = 'change-me'\nAPI_KEY = 'your-key-here'\n"
+        findings = _check_secrets("settings.py", content)
+        assert findings == []
+
+    def test_correct_line_number(self):
+        content = "line1\nline2\nAKIAIOSFODNN7EXAMPLE0\nline4\n"
+        findings = _check_secrets("deploy.py", content)
+        assert len(findings) == 1
+        assert findings[0].start_line == 3
+
+    def test_finding_schema_shape(self):
+        """Secrets finding conforms to the Finding schema contract."""
+        content = "KEY = 'AKIAIOSFODNN7EXAMPLE'\n"
+        findings = _check_secrets("config.py", content)
+        assert len(findings) == 1
+        data = findings[0].model_dump()
+        expected_keys = {
+            "id", "category", "severity", "confidence", "title",
+            "description", "file", "start_line", "end_line", "recommendation",
+        }
+        assert set(data.keys()) == expected_keys
+
+    def test_multiple_secrets_in_file(self):
+        content = (
+            "AWS_KEY = 'AKIAIOSFODNN7EXAMPLE'\n"
+            "-----BEGIN RSA PRIVATE KEY-----\n"
+            "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij\n"
+        )
+        findings = _check_secrets("secrets.py", content)
+        assert len(findings) == 3
+
+
+# ---------------------------------------------------------------------------
 # Integration: run_deterministic_checks
 # ---------------------------------------------------------------------------
 
@@ -180,6 +315,24 @@ class TestRunDeterministicChecks:
         }
         for f in run_deterministic_checks(files):
             assert f.category == Category.INSECURE_CONFIGURATION
+
+    def test_secrets_findings_included(self):
+        files = {
+            "deploy.py": "AWS_KEY = 'AKIAIOSFODNN7EXAMPLE'\n",
+        }
+        findings = run_deterministic_checks(files)
+        assert len(findings) == 1
+        assert findings[0].category == Category.SECRETS
+
+    def test_mixed_categories(self):
+        files = {
+            "config.py": "DEBUG = True\n",
+            "deploy.py": "KEY = 'AKIAIOSFODNN7EXAMPLE'\n",
+        }
+        findings = run_deterministic_checks(files)
+        categories = {f.category for f in findings}
+        assert Category.INSECURE_CONFIGURATION in categories
+        assert Category.SECRETS in categories
 
     def test_findings_are_valid_finding_objects(self):
         files = {"config.py": "CSRF_ENABLED = False\n"}
