@@ -4,13 +4,28 @@ This module is limited to high-confidence checks that support the reviewer
 without turning parity-zero into another SAST tool.  See ADR-004 and
 architecture.md § Deterministic Checks.
 
-Phase 1 implements a small set of insecure-configuration patterns:
-  - CORS wildcard allowing all origins
-  - debug mode enabled in production-like config
-  - dangerous disablement of security checks (SSL verification, CSRF)
+Phase 1 implements:
+
+  Insecure-configuration patterns (ADR-004):
+    - CORS wildcard allowing all origins
+    - debug mode enabled in production-like config
+    - dangerous disablement of security checks (SSL verification, CSRF)
+
+  Secrets detection (ADR-010):
+    - AWS access key IDs (AKIA prefix)
+    - private key headers (PEM format)
+    - GitHub personal access tokens (ghp_/ghs_ prefix)
 
 Any future checks should stay narrow, high-signal, and secondary to the
 LLM reviewer.
+
+Known limitations of secrets detection:
+  - Only covers AWS key IDs, PEM private keys, and GitHub tokens.
+  - Does not detect encoded, obfuscated, or multi-line secrets.
+  - Does not support path-based suppression (e.g. test fixtures).
+  - Does not detect secrets from other providers (GCP, Azure, etc.).
+  - Later iterations may need suppression annotations, path-awareness,
+    or integration with dedicated secret scanning tools.
 """
 
 from __future__ import annotations
@@ -46,6 +61,42 @@ _SECURITY_DISABLEMENT_PATTERNS = [
     (re.compile(r"""CSRF_ENABLED\s*=\s*False"""), "CSRF protection disabled"),
     (re.compile(r"""csrf_enabled\s*=\s*False"""), "CSRF protection disabled"),
     (re.compile(r"""WTF_CSRF_ENABLED\s*=\s*False"""), "CSRF protection disabled"),
+]
+
+# -- Secrets patterns (ADR-010) --
+# These are intentionally narrow and high-confidence.  Each pattern targets
+# a distinctive, well-known secret format that is unlikely to produce false
+# positives in normal application code.
+
+_SECRETS_PATTERNS: list[tuple[re.Pattern[str], str, str, str]] = [
+    # (compiled regex, title, description, recommendation)
+    (
+        re.compile(r"""AKIA[0-9A-Z]{16}"""),
+        "Hardcoded AWS access key ID",
+        "An AWS access key ID (AKIA prefix) appears to be hardcoded in "
+        "source code. Exposed AWS credentials can lead to unauthorised "
+        "access to cloud resources.",
+        "Remove the hardcoded key and use environment variables, a secrets "
+        "manager, or IAM roles instead.",
+    ),
+    (
+        re.compile(r"""-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"""),
+        "Private key committed to source",
+        "A PEM-encoded private key header was found in source code. "
+        "Committed private keys can be extracted from repository history "
+        "and used for unauthorised access.",
+        "Remove the private key from source control, rotate it, and load "
+        "keys from a secure secret store at runtime.",
+    ),
+    (
+        re.compile(r"""gh[ps]_[A-Za-z0-9]{36}"""),
+        "Hardcoded GitHub token",
+        "A GitHub personal access token or GitHub App installation token "
+        "appears to be hardcoded. Exposed tokens can grant access to "
+        "repositories, APIs, and organisation resources.",
+        "Remove the token from source code, revoke it, and use GitHub "
+        "Actions secrets or a credential manager instead.",
+    ),
 ]
 
 
@@ -137,6 +188,31 @@ def _check_security_disablement(filepath: str, content: str) -> list[Finding]:
     return findings
 
 
+def _check_secrets(filepath: str, content: str) -> list[Finding]:
+    """Detect obvious hardcoded secrets in source code.
+
+    Targets a small set of high-confidence patterns: AWS access key IDs,
+    PEM private key headers, and GitHub tokens.  See module docstring for
+    known limitations.
+    """
+    findings: list[Finding] = []
+    for line_num, line in enumerate(content.splitlines(), start=1):
+        for pattern, title, description, recommendation in _SECRETS_PATTERNS:
+            if pattern.search(line):
+                findings.append(Finding(
+                    category=Category.SECRETS,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.HIGH,
+                    title=title,
+                    description=description,
+                    file=filepath,
+                    start_line=line_num,
+                    recommendation=recommendation,
+                ))
+                break  # one finding per line is sufficient
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -157,5 +233,6 @@ def run_deterministic_checks(file_contents: dict[str, str]) -> list[Finding]:
         findings.extend(_check_cors_wildcard(filepath, content))
         findings.extend(_check_debug_mode(filepath, content))
         findings.extend(_check_security_disablement(filepath, content))
+        findings.extend(_check_secrets(filepath, content))
 
     return findings

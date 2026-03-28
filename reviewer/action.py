@@ -27,6 +27,7 @@ import urllib.request
 from schemas.findings import ScanResult
 from reviewer.engine import analyse, derive_decision_and_risk
 from reviewer.formatter import format_markdown
+from reviewer.models import PRContent
 
 logger = logging.getLogger(__name__)
 
@@ -179,8 +180,9 @@ def run() -> None:
     # in real workflows until file reading is wired in.  The mock_run()
     # path demonstrates the full engine with realistic content.
     file_contents = {fp: "" for fp in changed_files}
+    pr_content = PRContent.from_dict(file_contents)
 
-    analysis = analyse(file_contents)
+    analysis = analyse(pr_content)
 
     decision, risk_score = derive_decision_and_risk(analysis.findings)
 
@@ -255,10 +257,17 @@ def mock_run() -> dict:
             "async def dashboard():\n"
             "    return {'status': 'ok'}\n"
         ),
+        "src/deploy.py": (
+            "# Deployment helper\n"
+            "AWS_ACCESS_KEY_ID = 'AKIAIOSFODNN7EXAMPLE'\n"
+            "AWS_REGION = 'us-east-1'\n"
+        ),
     }
 
+    pr_content = PRContent.from_dict(mock_file_contents)
+
     # -- Run through the real engine --
-    analysis = analyse(mock_file_contents)
+    analysis = analyse(pr_content)
     decision, risk_score = derive_decision_and_risk(analysis.findings)
 
     result = ScanResult(

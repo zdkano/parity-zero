@@ -193,3 +193,96 @@ The findings contract adds a `Decision` enum (`block`, `warn`, `pass`) and a `Sc
 - All ScanResult payloads include a `decision` field (defaulting to `pass`)
 - Consumers can validate metadata independently via `ScanMeta`
 - The ingestion API may need to handle the new `decision` field if present in payloads
+
+---
+
+## ADR-010: Secrets detection as second deterministic check category
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+Add a narrow, high-confidence `secrets` deterministic check targeting obvious hardcoded secret patterns: AWS access key IDs, PEM private key headers, and GitHub personal access / app installation tokens.
+
+### Rationale
+- Hardcoded secrets are a high-value, low-noise finding category with distinctive formats
+- These three patterns (AKIA prefix, PEM headers, ghp_/ghs_ prefix) have very low false-positive rates
+- Secrets detection supports the reviewer wedge without expanding into broad SAST territory
+- The `secrets` category already exists in the findings taxonomy
+- Keeping patterns narrow aligns with ADR-004 (narrow deterministic guardrails)
+
+### Consequences
+- `reviewer/checks.py` now detects two categories: `insecure_configuration` and `secrets`
+- Findings use `Category.SECRETS` with `Severity.HIGH` / `Confidence.HIGH`
+- Only three pattern families are covered — this is intentionally narrow
+- mock_run output now includes both category types
+
+### Known limitations
+- Does not detect secrets from other providers (GCP, Azure, Stripe, etc.)
+- Does not detect encoded, obfuscated, or multi-line secrets
+- Does not support path-based suppression (e.g. test fixtures or example files)
+- Does not detect generic high-entropy strings (intentionally avoided to reduce noise)
+
+### Later considerations
+- Path-based suppression or annotation-based exclusion for test fixtures
+- Additional provider-specific patterns may be added incrementally
+- Integration with dedicated secret scanning tools may reduce the need for in-reviewer detection
+- Confidence levels could vary by pattern specificity in future iterations
+
+---
+
+## ADR-011: PRContent abstraction for reviewer inputs
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+Introduce `PRFile` and `PRContent` dataclasses in `reviewer/models.py` as the primary input structure for the analysis engine, replacing direct use of `dict[str, str]`.
+
+### Rationale
+- Decouples the engine interface from raw dict shape
+- Establishes a seam for future metadata enrichment (file status, language, diff hunks) without changing the engine signature
+- Makes the reviewer input contract explicit and testable
+- `from_dict()` / `to_dict()` provide backward compatibility during Phase 1 transition
+- The engine accepts both `PRContent` and `dict[str, str]` for backward compatibility
+
+### Consequences
+- `engine.analyse()` now accepts `PRContent` (preferred) or `dict[str, str]` (legacy)
+- `action.py` uses `PRContent.from_dict()` for both `run()` and `mock_run()`
+- Checks and reasoning modules still receive `dict[str, str]` internally — the engine converts via `to_dict()`
+- No changes to the ScanResult JSON contract
+
+### Later considerations
+- `PRFile` may later carry `status` (added/modified/renamed), `language`, or diff hunk metadata
+- `PRContent` construction should eventually be driven by the GitHub changed-files API response
+- The conversion to `dict[str, str]` inside the engine is a Phase 1 convenience — later, checks and reasoning may operate on `PRFile` directly
+- GitHub API integration for file content fetching should produce `PRContent` as its output
+
+---
+
+## ADR-012: Phase 1 risk scoring is intentionally coarse and temporary
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+The current Phase 1 risk scoring model (severity weights: high=25, medium=15, low=5; WARN threshold at 25) is accepted as intentionally coarse and temporary for MVP flow validation.
+
+### Rationale
+- Phase 1 needs a working decision derivation to validate the full reviewer output path
+- A simple weight-based model is sufficient to demonstrate PASS/WARN behaviour
+- Premature refinement of scoring would pull effort away from the reviewer wedge
+- The model is explicitly documented as temporary to prevent it from being treated as a final design
+
+### Consequences
+- The scoring model is adequate for Phase 1 flow validation but not for production severity handling
+- Current weighting does not account for confidence levels
+- Repeated low-severity findings accumulate linearly, which may not reflect real risk
+
+### Later refinements needed
+- Severity weighting may need non-linear scaling
+- Confidence should influence effective severity or weight
+- Repeated low-severity accumulation may need diminishing returns
+- Distinction between `WARN` and future `BLOCK` behaviour needs explicit policy rules
+- Policy-mode-aware decisioning (e.g. advisory vs enforcement) is a Phase 3 concern
+- Threshold values should be validated against real reviewer output data
