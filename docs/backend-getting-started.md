@@ -33,6 +33,11 @@ The backend uses **SQLite** for persistence.
 - Default: `parity_zero.db` in the working directory
 - Override via `PARITY_ZERO_DB_PATH` environment variable
 
+**Schema evolution:**
+The SQLite store includes lightweight additive migration support. When an existing database is opened, any missing columns (e.g. run summary metadata added in ADR-036) are added automatically with safe defaults. This ensures databases created by earlier versions of parity-zero continue to work after upgrade without manual intervention. See ADR-037.
+
+This is intentionally simple — column-presence detection and `ALTER TABLE ADD COLUMN` — not a full migration framework. A formal migration tool (e.g. Alembic) is deferred to later phases.
+
 **Future evolution:**
 Migration to Postgres or another relational store is expected as query, reporting, and multi-user needs grow. The current SQLite store is intentionally minimal. See ADR-035.
 
@@ -182,6 +187,8 @@ rm parity_zero.db
 ```
 
 The schema is recreated automatically on next startup.
+
+**Note:** Resetting is rarely needed. When upgrading parity-zero, the backend automatically migrates older databases to add any missing columns (ADR-037). Existing data is preserved with safe default values for new columns.
 
 ## What This Is Not
 

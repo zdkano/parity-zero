@@ -1809,3 +1809,49 @@ These are summary counts only — full internal objects (ReviewPlan, ReviewBundl
 - Covers: SkippedFile model, PRContent with skipped files, run summary metadata persistence and retrieval, backend ingest pass-through, ScanResult contract stability, scoring invariance, provider trust boundaries
 - All 1104 existing tests continue to pass unchanged
 - Total: 1143 tests pass
+
+---
+
+## ADR-037: Lightweight additive SQLite schema migration for upgrade safety
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+Add lightweight additive schema migration to the SQLite persistence layer so that databases created by earlier versions of parity-zero are upgraded automatically when opened by the current version.
+
+### Context
+ADR-036 added run summary metadata columns (`provider_invoked`, `provider_gate_decision`, `concerns_count`, `observations_count`, `provider_notes_count`, `provider_notes_suppressed_count`, `changed_files_count`, `skipped_files_count`) to the `runs` table. The schema initialisation uses `CREATE TABLE IF NOT EXISTS`, which only creates the table if it is absent — it does not add missing columns to an existing table. Databases created before ADR-036 would fail at runtime because `save_run()` tries to INSERT into columns that do not exist.
+
+### Migration approach
+- On store connection, after `CREATE TABLE IF NOT EXISTS`, run a migration helper
+- The helper inspects the `runs` table via `PRAGMA table_info(runs)` to get existing column names
+- For each expected additive column not yet present, execute `ALTER TABLE runs ADD COLUMN ... NOT NULL DEFAULT ...`
+- Safe defaults: integers default to 0, text columns default to empty string — matching the semantics in `_SCHEMA_SQL` and `save_run()`
+- The migration is idempotent: safe to run multiple times, on fresh DBs, and on already-migrated DBs
+
+### What this enables
+- Upgrade-in-place: operators can upgrade parity-zero without deleting their database
+- Pre-existing rows receive safe default values for new columns
+- New rows are written with full column coverage as before
+- API endpoints return expected data shapes for both legacy and new rows
+
+### What did NOT change
+- ScanResult JSON contract — unchanged
+- Scoring model — unchanged
+- Trust boundaries — unchanged
+- Provider implementations — unchanged
+- API endpoints — unchanged (same request/response shapes)
+- Fresh database behaviour — unchanged
+
+### Deferred concerns
+- **Full migration framework (Alembic or similar)** — still deferred; the current approach is additive-column-only and does not handle column renames, type changes, or destructive schema changes
+- **Schema versioning table** — not introduced; column-presence detection is sufficient for current needs
+- **Postgres migration path** — this migration logic is SQLite-specific; a future Postgres layer would use its own migration tooling
+- **Non-additive schema changes** — if future phases require column renames, type changes, or table restructuring, a more formal migration approach will be needed
+
+### Test coverage
+- 17 new tests in `tests/test_schema_migration.py`
+- Covers: old-schema upgrade, save/retrieve after upgrade, pre-existing row defaults, coexistence of legacy and new rows, fresh DB unchanged, migration idempotence (multiple reopens, direct helper calls), API behaviour on upgraded DB (ingest + retrieval), partial migration scenarios
+- All 1143 existing tests continue to pass unchanged
+- Total: 1160 tests pass

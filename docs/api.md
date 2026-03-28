@@ -328,7 +328,7 @@ Storing summary counts (not full objects) provides enough for debugging, history
 
 - Not a full search or analytics API — no full-text search, aggregation, or trend analysis
 - Not a multi-tenant platform — single shared token, no user accounts
-- Not production-hardened — SQLite is single-writer, no connection pooling, no migrations framework
+- Not production-hardened — SQLite is single-writer, no connection pooling, lightweight additive migration only (ADR-037)
 - Not a dashboard backend — no chart data, no UI endpoints
 - Not an authority on findings — persisting results does not change their trust semantics
 

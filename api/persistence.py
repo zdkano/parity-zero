@@ -13,8 +13,12 @@ Schema:
     files, and skipped files.  See ADR-036.
   - ``findings`` — individual findings linked to a run
 
+The module includes lightweight additive schema migration so that databases
+created by earlier versions of parity-zero (before ADR-036 columns were
+added) are upgraded automatically when the store is opened.  See ADR-037.
+
 The module exposes a ``ScanStore`` class that manages database lifecycle,
-schema initialisation, and CRUD operations.
+schema initialisation, migration, and CRUD operations.
 """
 
 from __future__ import annotations
@@ -76,6 +80,50 @@ CREATE INDEX IF NOT EXISTS idx_runs_ingested_at ON runs(ingested_at);
 """
 
 
+# ---------------------------------------------------------------------------
+# Lightweight additive migration for the ``runs`` table (ADR-037).
+#
+# Databases created before ADR-036 lack the run summary metadata columns.
+# Rather than requiring operators to recreate the database, we inspect the
+# existing schema and add any missing columns with safe defaults.
+#
+# This is intentionally simple — column-name detection + ALTER TABLE ADD
+# COLUMN.  A full migration framework is deferred to later phases.
+# ---------------------------------------------------------------------------
+
+_ADDITIVE_COLUMNS: list[tuple[str, str, str]] = [
+    # (column_name, column_type, default_value)
+    ("provider_name", "TEXT", "''"),
+    ("provider_invoked", "INTEGER", "0"),
+    ("provider_gate_decision", "TEXT", "''"),
+    ("concerns_count", "INTEGER", "0"),
+    ("observations_count", "INTEGER", "0"),
+    ("provider_notes_count", "INTEGER", "0"),
+    ("provider_notes_suppressed_count", "INTEGER", "0"),
+    ("changed_files_count", "INTEGER", "0"),
+    ("skipped_files_count", "INTEGER", "0"),
+]
+
+
+def _migrate_runs_table(conn: sqlite3.Connection) -> None:
+    """Add any missing additive columns to the ``runs`` table.
+
+    Safe to call multiple times — each column is added only if absent.
+    Uses ``ALTER TABLE … ADD COLUMN`` which is always additive in SQLite.
+    """
+    cursor = conn.execute("PRAGMA table_info(runs)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    for col_name, col_type, default in _ADDITIVE_COLUMNS:
+        if col_name not in existing_columns:
+            stmt = (
+                f"ALTER TABLE runs ADD COLUMN {col_name} "
+                f"{col_type} NOT NULL DEFAULT {default}"
+            )
+            conn.execute(stmt)
+            logger.info("Migrated runs table: added column %s", col_name)
+
+
 class ScanStore:
     """Minimal SQLite store for persisted scan results.
 
@@ -84,12 +132,14 @@ class ScanStore:
         store = ScanStore()           # uses PARITY_ZERO_DB_PATH or default
         store = ScanStore(":memory:") # in-memory for tests
 
-    The store creates tables on first use.  ``check_same_thread=False``
-    is set to support FastAPI's async request handling (ASGI servers may
-    dispatch requests across threads).  SQLite's WAL mode provides
-    concurrent read safety.  Write operations are serialised by SQLite
-    internally, but this store is designed for single-writer use.  For
-    high-concurrency production deployments, migrate to Postgres.
+    The store creates tables on first use and applies lightweight additive
+    migrations to bring older databases up to the current schema (ADR-037).
+    ``check_same_thread=False`` is set to support FastAPI's async request
+    handling (ASGI servers may dispatch requests across threads).  SQLite's
+    WAL mode provides concurrent read safety.  Write operations are
+    serialised by SQLite internally, but this store is designed for
+    single-writer use.  For high-concurrency production deployments,
+    migrate to Postgres.
     """
 
     def __init__(self, db_path: str | None = None) -> None:
@@ -103,6 +153,7 @@ class ScanStore:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
             self._conn.executescript(_SCHEMA_SQL)
+            _migrate_runs_table(self._conn)
         return self._conn
 
     def close(self) -> None:
