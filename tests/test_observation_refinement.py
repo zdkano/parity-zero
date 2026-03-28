@@ -642,7 +642,7 @@ class TestMarkdownOutput:
         assert md.startswith("## 🔒")
         assert "Decision:" in md
         assert "Risk:" in md
-        assert md.rstrip().endswith("")  # ends cleanly
+        assert md.strip()  # non-empty after stripping
 
 
 # ======================================================================

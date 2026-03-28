@@ -266,7 +266,14 @@ _MAX_ENRICHMENT_CHARS = 200
 # Maximum supplementary observations from provider notes.
 _MAX_SUPPLEMENTARY = 3
 
+# Minimum summary length for a provider note to qualify as supplementary.
+_MIN_SUPPLEMENTARY_SUMMARY_LENGTH = 15
+
 # Keyword overlap threshold for matching a note to an observation.
+# 35% is intentionally lower than the 60% suppression threshold in
+# reasoning.py — enrichment requires less overlap than suppression
+# because adding detail is lower risk than discarding content.
+# This is a tunable heuristic (see ADR-028 deferred concerns).
 _MATCH_KEYWORD_THRESHOLD = 0.35
 
 # Stopwords excluded from keyword extraction (shared with reasoning.py).
@@ -355,7 +362,7 @@ def refine_observations(
         target_paths = [p for p in note.related_paths if p and p not in covered_paths]
         if not target_paths:
             continue
-        if not note.summary or len(note.summary.strip()) < 15:
+        if not note.summary or len(note.summary.strip()) < _MIN_SUPPLEMENTARY_SUMMARY_LENGTH:
             continue
         obs = _supplementary_observation(note, target_paths[0])
         refined.append(obs)
