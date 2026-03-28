@@ -10,6 +10,10 @@ Optionally includes per-file review observations (ADR-024) — targeted
 analysis of why specific files deserve scrutiny, derived from ReviewBundle
 evidence.
 
+Optionally includes provider candidate notes (ADR-027) — additional
+security-relevant observations from the reasoning provider, shown only
+when distinct from existing concerns and observations.
+
 Design goals (from team.md):
   - clear, practical, and low-noise
   - actionable recommendations
@@ -22,6 +26,7 @@ ScanResult remains the authoritative system contract.
 from __future__ import annotations
 
 from reviewer.models import ReviewConcern, ReviewObservation
+from reviewer.providers import CandidateNote
 from schemas.findings import Decision, ScanResult, Severity
 
 _DECISION_BADGES: dict[Decision, str] = {
@@ -42,6 +47,7 @@ def format_markdown(
     result: ScanResult,
     concerns: list[ReviewConcern] | None = None,
     observations: list[ReviewObservation] | None = None,
+    provider_notes: list[CandidateNote] | None = None,
 ) -> str:
     """Render a ScanResult as a markdown PR summary.
 
@@ -54,6 +60,9 @@ def format_markdown(
             in a separate section.  These are targeted analysis notes
             tied to specific files, distinct from both findings and
             concerns.
+        provider_notes: Optional normalized candidate notes from the
+            reasoning provider, shown in a distinct section when they
+            add value beyond concerns and observations.
 
     Returns:
         A markdown string suitable for a GitHub PR comment.
@@ -77,6 +86,7 @@ def format_markdown(
         lines.append("")
         _append_concerns(lines, concerns)
         _append_observations(lines, observations)
+        _append_provider_notes(lines, provider_notes)
         _append_footer(lines, result)
         return "\n".join(lines)
 
@@ -124,6 +134,7 @@ def format_markdown(
 
     _append_concerns(lines, concerns)
     _append_observations(lines, observations)
+    _append_provider_notes(lines, provider_notes)
     _append_footer(lines, result)
     return "\n".join(lines)
 
@@ -192,6 +203,40 @@ def _append_observations(
         lines.append(f"  {obs.summary}")
         if obs.related_paths:
             paths_str = ", ".join(f"`{p}`" for p in obs.related_paths[:3])
+            lines.append(f"  Related: {paths_str}")
+        lines.append("")
+
+
+def _append_provider_notes(
+    lines: list[str],
+    notes: list[CandidateNote] | None,
+) -> None:
+    """Append provider candidate notes as a clearly separated section.
+
+    Provider notes are additional security observations from the reasoning
+    provider, shown only when they are distinct from existing concerns and
+    observations.  They are explicitly non-authoritative.
+    """
+    if not notes:
+        return
+
+    lines.append("### 💬 Additional Review Notes")
+    lines.append("")
+    lines.append(
+        "*AI-generated candidate observations — these are supplementary "
+        "notes from the reasoning provider.  They are not proven findings "
+        "and may require verification.*"
+    )
+    lines.append("")
+
+    for note in notes[:5]:
+        confidence_tag = f"confidence: {note.confidence}"
+        title = note.title or note.summary[:60]
+        lines.append(f"- **{title}** ({confidence_tag})")
+        if note.summary and note.summary != title:
+            lines.append(f"  {note.summary}")
+        if note.related_paths:
+            paths_str = ", ".join(f"`{p}`" for p in note.related_paths[:3])
             lines.append(f"  Related: {paths_str}")
         lines.append("")
 

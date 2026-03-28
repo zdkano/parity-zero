@@ -26,6 +26,7 @@ import pytest
 from reviewer.engine import AnalysisResult, analyse, derive_decision_and_risk
 from reviewer.models import PRContent, PullRequestContext, RepoSecurityProfile
 from reviewer.providers import (
+    CandidateNote,
     DisabledProvider,
     GitHubModelsProvider,
     MockProvider,
@@ -238,10 +239,28 @@ class TestPromptFormatting:
 class TestResponseParsing:
     """Verify parsing of model response text into candidate notes."""
 
-    def test_parse_valid_json_array(self):
+    def test_parse_valid_json_string_array(self):
         raw = '["Note one", "Note two", "Note three"]'
         notes = _parse_candidate_notes(raw)
-        assert notes == ["Note one", "Note two", "Note three"]
+        assert len(notes) == 3
+        assert all(isinstance(n, CandidateNote) for n in notes)
+        assert notes[0].summary == "Note one"
+        assert notes[1].summary == "Note two"
+        assert notes[2].summary == "Note three"
+
+    def test_parse_structured_json_objects(self):
+        raw = json.dumps([
+            {"title": "Auth issue", "summary": "Missing auth check", "paths": ["auth.py"], "confidence": "medium"},
+            {"title": "Config note", "summary": "Debug mode enabled", "paths": ["config.py"], "confidence": "low"},
+        ])
+        notes = _parse_candidate_notes(raw, provider_name="github-models")
+        assert len(notes) == 2
+        assert notes[0].title == "Auth issue"
+        assert notes[0].summary == "Missing auth check"
+        assert notes[0].related_paths == ["auth.py"]
+        assert notes[0].confidence == "medium"
+        assert notes[0].source == "github-models"
+        assert notes[1].title == "Config note"
 
     def test_parse_empty_array(self):
         raw = "[]"
@@ -251,13 +270,15 @@ class TestResponseParsing:
     def test_parse_json_with_surrounding_text(self):
         raw = 'Here are my observations:\n["Note one", "Note two"]\nEnd.'
         notes = _parse_candidate_notes(raw)
-        assert "Note one" in notes
-        assert "Note two" in notes
+        summaries = [n.summary for n in notes]
+        assert "Note one" in summaries
+        assert "Note two" in summaries
 
     def test_parse_non_json_fallback(self):
         raw = "- This is a security observation about auth.\n- Another observation about config."
         notes = _parse_candidate_notes(raw)
         assert len(notes) >= 1
+        assert all(isinstance(n, CandidateNote) for n in notes)
 
     def test_parse_empty_string(self):
         raw = ""
@@ -267,17 +288,46 @@ class TestResponseParsing:
     def test_parse_filters_empty_strings(self):
         raw = '["Note one", "", "  ", "Note two"]'
         notes = _parse_candidate_notes(raw)
-        assert notes == ["Note one", "Note two"]
+        assert len(notes) == 2
+        summaries = [n.summary for n in notes]
+        assert "Note one" in summaries
+        assert "Note two" in summaries
 
     def test_parse_limits_notes(self):
         raw = json.dumps([f"Note {i}" for i in range(30)])
         notes = _parse_candidate_notes(raw)
-        assert len(notes) <= 20
+        assert len(notes) <= 10
 
     def test_parse_non_string_items_ignored(self):
         raw = '["Valid note", 42, true, "Another valid note"]'
         notes = _parse_candidate_notes(raw)
-        assert notes == ["Valid note", "Another valid note"]
+        assert len(notes) == 2
+        summaries = [n.summary for n in notes]
+        assert "Valid note" in summaries
+        assert "Another valid note" in summaries
+
+    def test_parse_mixed_objects_and_strings(self):
+        raw = json.dumps([
+            {"title": "Structured note", "summary": "Detail here"},
+            "Simple string note",
+        ])
+        notes = _parse_candidate_notes(raw)
+        assert len(notes) == 2
+        assert notes[0].title == "Structured note"
+        assert notes[1].summary == "Simple string note"
+
+    def test_parse_object_confidence_clamped(self):
+        """Confidence values outside low/medium are clamped to low."""
+        raw = json.dumps([
+            {"title": "Note", "summary": "Detail", "confidence": "high"},
+        ])
+        notes = _parse_candidate_notes(raw)
+        assert notes[0].confidence == "low"
+
+    def test_parse_provider_name_propagated(self):
+        raw = '["A note"]'
+        notes = _parse_candidate_notes(raw, provider_name="test-provider")
+        assert notes[0].source == "test-provider"
 
 
 # ======================================================================
