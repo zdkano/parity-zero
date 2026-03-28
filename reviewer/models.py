@@ -13,6 +13,8 @@ Provides explicit structures for:
   with baseline profile and review memory (ADR-018).
 - **Review bundle** — ``ReviewBundleItem`` and ``ReviewBundle`` for
   structured review evidence aggregation (ADR-023).
+- **Review observation** — ``ReviewObservation`` for per-file security
+  review observations derived from ReviewBundle items (ADR-024).
 
 Phase 1 keeps models deliberately minimal — see relevant ADRs.
 """
@@ -270,6 +272,53 @@ class ReviewConcern:
 
     related_paths: list[str] = field(default_factory=list)
     """File paths related to this concern."""
+
+
+# ======================================================================
+# Review observation (ADR-024)
+# ======================================================================
+
+
+@dataclass
+class ReviewObservation:
+    """A targeted security review observation tied to a specific changed file.
+
+    Review observations explain **why a particular file deserves scrutiny**
+    based on its ReviewBundleItem context — focus areas, baseline context,
+    memory context, and review reason.  They are per-file, contextual, and
+    reviewer-like.
+
+    Observations are:
+    - distinct from ``Finding`` — they do not claim a vulnerability
+    - distinct from ``ReviewConcern`` — they are tied to specific files
+      and derived from ReviewBundle evidence rather than plan-level signals
+    - surfaced in markdown output only (not in the JSON contract)
+    - not used in risk scoring
+    - lightweight, heuristic-based, and phase-1-appropriate
+
+    See ADR-024 for the decision to introduce this concept.
+    """
+
+    path: str = ""
+    """Repo-relative file path this observation targets."""
+
+    focus_area: str = ""
+    """Primary finding taxonomy area relevant to this observation."""
+
+    title: str = ""
+    """Concise observation title."""
+
+    summary: str = ""
+    """Context-aware description of why this file deserves scrutiny."""
+
+    confidence: str = "low"
+    """How confident the reviewer is this observation is relevant (medium/low)."""
+
+    basis: str = ""
+    """Source of the observation (e.g. 'auth_bundle_item', 'memory_alignment')."""
+
+    related_paths: list[str] = field(default_factory=list)
+    """Other changed paths related to this observation."""
 
 
 # ======================================================================

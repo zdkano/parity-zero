@@ -118,12 +118,15 @@ It produces:
 - historical awareness from review memory
 - **plan-informed review concerns** — contextual observations about areas
   deserving closer attention, distinct from proven findings (ADR-022)
+- **per-file review observations** — targeted analysis notes tied to specific
+  changed files, derived from ReviewBundle evidence (ADR-024)
 - confidence-weighted findings (when LLM integration is added)
 
 Phase 1 status: the reasoning layer accepts a `ReviewPlan` (ADR-021) and
-generates plan-driven contextual notes and review concerns (ADR-022).  When
-no plan is provided, it falls back to ad-hoc overlap checks for backward
-compatibility.  LLM integration will be added in a subsequent iteration.
+generates plan-driven contextual notes, review concerns (ADR-022), and
+per-file observations from ReviewBundle items (ADR-024).  When no plan is
+provided, it falls back to ad-hoc overlap checks for backward compatibility.
+LLM integration will be added in a subsequent iteration.
 
 ---
 
@@ -147,6 +150,9 @@ signals, baseline context, and review memory.
 Phase 1 status: heuristic-based plan derivation and concern generation.
 Later phases may incorporate provider-backed reasoning into plan
 construction and concern enrichment.
+
+Note: concerns (plan-level, ADR-022) are distinct from observations
+(per-file, bundle-driven, ADR-024).  Both are distinct from findings.
 
 ---
 
@@ -173,6 +179,30 @@ or affect risk scoring.
 Phase 1 status: heuristic-based evidence gathering.  No AST analysis,
 code-graph traversal, or provider-backed reasoning.  Related-context
 gathering is bounded and intentionally incomplete.
+
+---
+
+### 6d. Review Observation Generator (ADR-024)
+A lightweight **per-file review observation** layer that produces targeted
+security analysis notes from `ReviewBundle` items.
+
+Responsibilities:
+- translate per-file bundle evidence into reviewer-like observations
+- connect review reasons, focus areas, baseline context, and memory context
+  into concise explanations of why a file deserves scrutiny
+- filter out noise: plain changed files with no meaningful signals produce
+  no observations
+- bound output to avoid verbosity (max 10 observations per bundle)
+
+Observations are **distinct from concerns** (which are plan-level signals)
+and **distinct from findings** (which claim proven issues).  They are
+per-file, bundle-driven, and contextual.
+
+Observations are **internal and markdown-only** — they do not appear in the
+JSON contract or affect risk scoring.
+
+Phase 1 status: heuristic-based observation generation from bundle item
+signals.  No provider-backed reasoning or semantic analysis.
 
 ---
 

@@ -22,7 +22,8 @@ See also: architecture.md § Reasoning Layer (Contextual Review).
 Phase 1 implementation: baseline-aware and memory-aware contextual review
 notes, now driven by a structured ``ReviewPlan`` (ADR-021).  The planner
 derives focus areas from ``PullRequestContext`` and the reasoning layer
-translates plan focus into contextual notes.  LLM integration will be
+translates plan focus into contextual notes.  Per-file review observations
+are derived from the ReviewBundle (ADR-024).  LLM integration will be
 added in a subsequent iteration.
 """
 
@@ -31,7 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from schemas.findings import Finding
-from reviewer.models import PullRequestContext, RepoSecurityProfile, ReviewBundle, ReviewConcern, ReviewMemory, ReviewPlan
+from reviewer.models import PullRequestContext, RepoSecurityProfile, ReviewBundle, ReviewConcern, ReviewMemory, ReviewObservation, ReviewPlan
 
 # Canonical path analysis helpers live in planner.py (ADR-021).
 # Re-exported here for backward compatibility with existing callers/tests.
@@ -44,6 +45,7 @@ from reviewer.planner import (  # noqa: F401
     generate_concerns,
 )
 from reviewer.bundle import build_review_bundle
+from reviewer.observations import generate_observations
 
 
 @dataclass
@@ -62,6 +64,10 @@ class ReasoningResult:
         concerns: Plan-informed review concerns — areas that may deserve
             closer security attention based on context.  Distinct from
             findings; do not affect scoring.  See ADR-022.
+        observations: Per-file review observations derived from ReviewBundle
+            items.  Each observation explains why a specific file deserves
+            scrutiny.  Distinct from concerns (which are plan-level) and
+            findings (which claim issues).  See ADR-024.
         bundle: Structured review evidence gathered from PR delta,
             baseline, memory, and review plan.  Carries per-file context
             and review reasons.  Internal only — does not appear in the
@@ -71,6 +77,7 @@ class ReasoningResult:
     findings: list[Finding] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     concerns: list[ReviewConcern] = field(default_factory=list)
+    observations: list[ReviewObservation] = field(default_factory=list)
     bundle: ReviewBundle | None = None
 
 
@@ -125,12 +132,15 @@ def run_reasoning(
     # -- Plan-driven contextual notes (ADR-021) --
     # -- Plan-driven contextual concerns (ADR-022) --
     # -- Review bundle assembly (ADR-023) --
+    # -- Per-file review observations (ADR-024) --
     concerns: list[ReviewConcern] = []
+    observations: list[ReviewObservation] = []
     bundle: ReviewBundle | None = None
     if plan is not None:
         _add_plan_notes(notes, plan)
         concerns = generate_concerns(plan, ctx)
         bundle = build_review_bundle(ctx, plan)
+        observations = generate_observations(bundle)
     else:
         # Legacy path: derive notes directly from context overlap
         changed_paths = ctx.pr_content.paths
@@ -139,7 +149,10 @@ def run_reasoning(
         if ctx.has_memory and ctx.memory is not None:
             _add_memory_notes(notes, changed_paths, ctx.memory)
 
-    return ReasoningResult(findings=[], notes=notes, concerns=concerns, bundle=bundle)
+    return ReasoningResult(
+        findings=[], notes=notes, concerns=concerns,
+        observations=observations, bundle=bundle,
+    )
 
 
 # ======================================================================
