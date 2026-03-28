@@ -597,3 +597,73 @@ Concerns are **distinct from findings**.  They represent contextual observations
 - Concern influence on scoring (if concerns should affect risk score, this needs explicit design)
 - Concern aggregation across PRs (control plane feature, Phase 2+)
 - Adding concerns to the JSON contract (if downstream consumers need machine-readable concerns)
+
+---
+
+## ADR-023: ReviewBundle — structured review evidence aggregation
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Context
+PullRequestContext carries raw PR delta, baseline profile, and review memory.
+ReviewPlan derives focus areas and guidance.  However, the contextual review
+layer still consumed these as loosely connected inputs — paths, notes, and
+flags — without a unified per-file evidence structure.
+
+Moving toward richer contextual review (and eventually provider-backed
+reasoning) requires a structured intermediate representation that gathers
+the relevant evidence for each file under review together with the
+surrounding context explaining why it matters.
+
+### Decision
+Introduce **ReviewBundle** and **ReviewBundleItem** as lightweight internal
+models for structured review evidence aggregation.
+
+- `ReviewBundleItem` captures a single changed file with: path, content,
+  review reason (why it is in focus), applicable focus areas from the
+  ReviewPlan, baseline context, memory context, and related paths.
+- `ReviewBundle` collects items together with aggregate plan summary,
+  framework context, and auth pattern context.
+
+A builder module (`reviewer/bundle.py`) assembles the bundle from
+PullRequestContext and ReviewPlan using simple, explainable heuristics.
+
+### What is implemented
+- `ReviewBundleItem` and `ReviewBundle` dataclasses in `reviewer/models.py`
+- `build_review_bundle(ctx, plan)` in `reviewer/bundle.py` that:
+  - Classifies each changed file by review reason (sensitive_path, auth_area, sensitive_auth, changed_file)
+  - Derives per-file focus areas from plan/path intersection
+  - Enriches items with baseline context (auth patterns, frameworks) when relevant
+  - Enriches items with memory context (matching category entries) when available
+  - Computes related paths from same-directory and shared-area heuristics
+  - Carries plan guidance and aggregate baseline context
+- Integration in `run_reasoning()` (ADR-021): bundle is built when a plan is present
+- `ReasoningResult.bundle` and `AnalysisResult.bundle` carry the bundle through the flow
+- 52 new tests covering creation, sensitive/auth classification, memory enrichment, weak context, flow stability, no-overclaiming, and JSON contract stability
+
+### Key design choices
+- **Bundle is internal only.** It does not appear in ScanResult or the JSON contract. This avoids premature contract expansion.
+- **Bundle does not produce findings.** It aggregates evidence — it does not claim vulnerabilities or affect scoring.
+- **Heuristic-based classification.** Review reasons and focus areas are derived from path segment matching and plan intersection, not AST or semantic analysis.
+- **Bounded related context.** Related paths are capped at 3 per item; memory context at 3 entries per item.
+- **Backward compatible.** Existing callers are unaffected; the bundle is carried as an optional field.
+- **Phase 1 appropriate.** No AST parsing, code graph traversal, or provider-backed reasoning.
+
+### Consequences
+- The contextual review layer now operates on better structured review evidence per file
+- Each file carries explicit annotation of why it is under review and what context is relevant
+- The bundle provides a natural integration point for future provider-backed reasoning
+- Concerns generation and notes can leverage bundle item context
+- The JSON contract is unchanged
+- Risk scoring is unchanged
+
+### Deferred concerns
+- Enriching bundle items with diff hunks (only changed lines, not full content)
+- Adding symbol-level context (function/class names, imports)
+- Route/middleware context from framework-specific analysis
+- Repository graph signals (call graphs, dependency edges)
+- Provider-backed semantic enrichment of bundle items
+- Bundle persistence or caching across review runs
+- Adding bundle information to the JSON contract (if downstream consumers need it)
+- AST-based or code-graph-based related-file discovery

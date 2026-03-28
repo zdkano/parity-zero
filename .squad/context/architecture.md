@@ -150,6 +150,32 @@ construction and concern enrichment.
 
 ---
 
+### 6c. Review Bundle Builder (ADR-023)
+A lightweight **review evidence aggregation** layer that gathers per-file
+structured context from the PR delta, review plan, baseline profile, and
+review memory into a `ReviewBundle`.
+
+Responsibilities:
+- classify each changed file by review reason (sensitive, auth, combined, plain)
+- derive per-file focus areas from plan/path intersection
+- enrich items with relevant baseline context (frameworks, auth patterns)
+- enrich items with relevant memory context (matching category entries)
+- compute related paths from same-directory and shared-area heuristics
+- carry aggregate plan summary and baseline context
+
+The bundle sits between `PullRequestContext`/`ReviewPlan` and downstream
+contextual reasoning.  It makes the reviewer operate on structured review
+evidence rather than ad-hoc paths and notes.
+
+The bundle is **internal only** — it does not appear in the JSON contract
+or affect risk scoring.
+
+Phase 1 status: heuristic-based evidence gathering.  No AST analysis,
+code-graph traversal, or provider-backed reasoning.  Related-context
+gathering is bounded and intentionally incomplete.
+
+---
+
 ### 7. Memory / Context Store
 Persistent storage for review context that accumulates over time.
 
@@ -242,7 +268,8 @@ flowchart LR
         PR[Pull Request] --> PCB[PR Context Builder]
         RSP --> PCB
         PCB --> RP[Review Planner]
-        RP --> CRE[Contextual Security Review Engine]
+        RP --> RBB[Review Bundle Builder]
+        RBB --> CRE[Contextual Security Review Engine]
         PCB --> DSC[Deterministic Support Checks]
         DSC --> CRE
     end
