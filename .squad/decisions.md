@@ -1497,3 +1497,87 @@ All provider failures degrade gracefully:
   policy engine for provider routing.  Selection is explicit per-deployment.
 - **Provider-specific error codes** are not handled distinctly — all errors
   are treated uniformly as fallback-to-empty.
+
+---
+
+## ADR-032: PR validation harness for scenario-based reviewer testing
+
+**Status:** Accepted
+**Date:** 2026-03-28
+
+### Decision
+
+Introduce a lightweight PR validation framework in `reviewer/validation/`
+that validates reviewer behavior across curated pull request scenarios.
+
+The framework has three layers:
+
+1. **Scenario format** — `ValidationScenario` pairs synthetic PR inputs
+   (changed files, optional baseline profile, optional review memory,
+   provider mode) with declarative `ExpectedBehavior` assertions.
+
+2. **Curated corpus** — A small, readable set of 7 representative
+   scenarios covering key review paths: auth-sensitive, sensitive-config,
+   trivial-docs, memory-influenced, deterministic-only, provider-enriched,
+   and low-noise-tests.
+
+3. **Validation runner** — `run_scenario()` executes a scenario through
+   the full reviewer pipeline and evaluates expectations as structured
+   `Assertion` results in a `ValidationResult`.
+
+### Rationale
+
+- **Regression testing**: Scenarios encode expected behavior so pipeline
+  changes can be validated against known-good baselines.
+- **Quality tuning**: Scenarios make it easy to verify that tuning
+  changes (prompt, heuristic, threshold) produce intended effects.
+- **Provider safety**: All scenarios use `DisabledProvider` or
+  `MockProvider` — no live credentials required.
+- **Trust-boundary validation**: Every scenario asserts that provider
+  output does not pollute decision, risk_score, or findings.
+- **Phase alignment**: This is a reviewer-first testing tool, not a
+  benchmark platform or dashboard feature.
+
+### What the harness validates
+
+- Provider gate invoked or skipped as expected
+- Findings count and category presence/absence
+- Concern and observation presence/absence
+- Markdown output containing or omitting key sections
+- Trust-boundary invariants (decision/risk deterministic from findings)
+- ScanResult JSON contract stability
+
+### What the harness does NOT do
+
+- Change ScanResult, scoring, or decision logic
+- Require live provider credentials
+- Build a full benchmark schema or scoring platform
+- Add dashboard or reporting features
+- Replace existing unit tests
+
+### Consequences
+
+- 66 new focused tests cover scenario loading, validation runner
+  behavior, all 7 curated scenarios, provider gate expectations,
+  trust-boundary invariants, ScanResult contract stability, and
+  provider compatibility.
+- All 1003 tests pass (937 original + 66 new).
+- Scenarios are parameterized — `@pytest.mark.parametrize` runs all
+  corpus scenarios in a single test class for easy expansion.
+
+### Deferred concerns
+
+- **Full benchmark scoring** remains deferred — the harness validates
+  behavior, not quality metrics or provider comparison scores.
+- **Live-provider quality comparison** remains future work — scenarios
+  use only disabled/mock providers.
+- **Markdown snapshot stability** may need tuning later — assertions
+  use substring matching, not full-output snapshots, to minimize
+  brittleness.
+- **Scenario corpus expansion** — the initial 7 scenarios cover key
+  paths but the corpus should grow as the reviewer pipeline matures.
+- **Cross-provider scenario comparison** — running the same scenario
+  against multiple live providers for quality analysis is not yet
+  supported.
+- **Scenario versioning** — scenarios are currently in code; a
+  file-based format may be useful if the corpus grows significantly.
