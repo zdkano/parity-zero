@@ -1613,3 +1613,63 @@ Add a `docs/` directory with structured documentation for contributors and opera
 - `docs/` is the contributor/operator-facing documentation surface
 - Documentation must be kept aligned with implementation reality as the reviewer evolves
 - No code changes, scoring changes, or contract changes were made
+
+## ADR-034: GitHub Action runtime completeness and PR output integration
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+Complete the GitHub Action runtime so parity-zero can genuinely review real pull requests: discover changed files, load file contents from the workspace, run the full reviewer pipeline, and surface results in GitHub-native ways (job summary and PR comment).
+
+### Context
+Prior to this change, the action discovered changed file paths but passed empty content strings to the reviewer pipeline. Output was only written to stdout. The reviewer pipeline was fully functional internally but the action path was incomplete for real PR review.
+
+### Changes
+
+**Changed file discovery:**
+- Primary: `git diff --name-only --diff-filter=ACMR <base_sha> HEAD` using the PR base SHA from the GitHub event payload
+- Fallback: GitHub REST API (existing `get_changed_files()`) when git diff is unavailable
+- Deleted files are excluded (no content to review)
+- Decision: git diff was chosen over API-only because it works with the already-checked-out repo, requires no additional API calls, and handles the common case robustly
+
+**File content loading:**
+- Read files from `GITHUB_WORKSPACE` (or cwd)
+- Skip binary files (UTF-8 decode failure)
+- Skip large files (> 1 MB)
+- Skip missing/deleted/unreadable files
+- Log skipped files with reason
+- New module: `reviewer/github_runtime.py`
+
+**Output surfacing:**
+- GitHub job summary (`GITHUB_STEP_SUMMARY`) — baseline, always available
+- PR comment — created or updated via GitHub REST API
+- PR comment uses `<!-- parity-zero-review -->` marker for idempotent updates
+- Comment update searches first 100 comments; duplicate may occur on very large PRs (documented limitation)
+- Both outputs use the same markdown from `format_markdown()`
+
+**Action YAML:**
+- Added "Fetch PR base for diff" step to `action.yml` so the base commit is available for `git diff`
+
+### What did NOT change
+- ScanResult JSON contract — unchanged
+- Scoring model — unchanged (findings-only, deterministic)
+- Trust boundaries — unchanged (provider output remains non-authoritative)
+- Validation harness — all 7 scenarios still pass
+- Mock run path — unchanged
+- Provider implementations — unchanged
+
+### Known limitations (intentionally deferred)
+- PR comment dedup checks first 100 comments only; very large PRs may get duplicates
+- Binary files are skipped entirely (no review of images, compiled artifacts)
+- Files > 1 MB are skipped
+- Deleted files cannot be reviewed (no content exists at HEAD)
+- Marketplace branding and versioned releases still needed
+- Backend persistence / control-plane still deferred
+- Richer PR metadata (labels, reviewers, draft status) may be useful later
+
+### Test coverage
+- 50 new focused tests in `tests/test_github_runtime.py`
+- Covers: git diff discovery, file loading, job summary, PR comment, PullRequestContext assembly, ScanResult contract stability, output format, validation harness compatibility
+- All mocked — no live GitHub API credentials required
+- Total: 1053 tests pass (1003 existing + 50 new)

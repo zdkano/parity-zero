@@ -25,8 +25,6 @@ parity-zero is being built toward GitHub Marketplace distribution. This is an in
 
 - **Versioned releases** — tagged releases (e.g. `v1.0.0`) so consumers can pin to stable versions
 - **Action branding** — `action.yml` needs `branding` metadata (icon, color) for Marketplace listing
-- **PR comment integration** — output currently goes to the workflow log; posting as a PR comment is planned
-- **File content reading** — the action discovers changed file paths but does not yet read file contents from the workspace checkout
 - **Documentation polish** — clear Marketplace listing description and usage instructions
 - **Testing across repository types** — validation beyond the current curated scenario corpus
 
@@ -35,9 +33,14 @@ parity-zero is being built toward GitHub Marketplace distribution. This is an in
 - `action.yml` composite action definition
 - Python 3.12 setup
 - Dependency installation
+- PR base fetch for git diff
 - Reviewer execution via `python -m reviewer.action`
+- **Real file content loading** from workspace checkout
+- **Changed file discovery** via git diff with API fallback
 - Structured JSON output (ScanResult)
 - Markdown summary generation
+- **GitHub job summary** output (GITHUB_STEP_SUMMARY)
+- **PR comment posting** with update-not-duplicate behavior
 - Provider configuration via environment variables
 - Safe fallback when providers are not configured
 
@@ -56,6 +59,6 @@ When ready for broader distribution:
 parity-zero does not claim to be Marketplace-ready today. The reviewer pipeline is functional and the action works, but the packaging and integration polish expected for a production Marketplace listing is still in progress.
 
 Avoid:
-- Publishing to Marketplace before PR comment integration works
-- Claiming production-readiness without file content reading wired in
+- Publishing to Marketplace before broader testing across different repository types
+- Claiming production-readiness without versioned releases
 - Skipping versioned releases — consumers need stable reference points

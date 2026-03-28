@@ -19,13 +19,19 @@ findings contract.
 Runs on pull request events and coordinates the review workflow.
 
 Responsibilities:
-- gather changed files and metadata
+- discover changed files via `git diff` against the PR base (ADR-034)
+- load file contents from the checked-out workspace
 - invoke baseline profiling (or load existing baseline)
 - build PR review context combining delta, baseline, and memory
 - invoke the contextual review engine
 - produce markdown review output
 - emit structured JSON
+- surface results as GitHub job summary and PR comment (ADR-034)
 - optionally send output to a central backend
+
+Runtime modules:
+- `reviewer/action.py` — entry point and workflow orchestration
+- `reviewer/github_runtime.py` — file discovery, content loading, output surfacing
 
 ---
 
