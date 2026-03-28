@@ -206,7 +206,9 @@ def run() -> None:
 
     # ScanResult requires pr_number >= 1.  When running outside a PR
     # context (e.g. locally or in a non-PR workflow), use 1 as a safe
-    # fallback so the structured output is always valid.
+    # fallback so the structured output is always valid.  Downstream
+    # consumers should not treat pr_number=1 as meaningful when the
+    # repo is "unknown/unknown" — this is a known Phase 1 pattern.
     pr_number = context["pr_number"] if context["pr_number"] >= 1 else 1
 
     result = ScanResult(

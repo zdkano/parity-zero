@@ -422,8 +422,9 @@ class TestActionRunIntegration:
         run()
 
         captured = capsys.readouterr()
-        # Should find the DEBUG = True pattern
-        assert "debug" in captured.out.lower() or "insecure_configuration" in captured.out.lower()
+        # The JSON output should contain an insecure_configuration finding
+        # for the DEBUG = True pattern
+        assert "insecure_configuration" in captured.out
 
     @mock.patch("reviewer.action.post_pr_comment", return_value=False)
     @mock.patch("reviewer.action.write_job_summary", return_value=False)
@@ -745,4 +746,5 @@ class TestValidationHarnessCompatibility:
 
         for scenario in SCENARIOS:
             result = run_scenario(scenario)
-            assert result.passed, f"Scenario '{scenario.id}' failed: {[a for a in result.assertions if not a.passed]}"
+            failed = [f"{a.name}: {a.detail}" for a in result.assertions if not a.passed]
+            assert result.passed, f"Scenario '{scenario.id}' failed: {failed}"

@@ -210,8 +210,10 @@ def _find_existing_comment(
     """Find an existing parity-zero review comment on the PR.
 
     Returns the comment ID if found, None otherwise.  Only checks the
-    first page of comments (100); PRs with more comments may get
-    duplicate review comments.
+    first page of comments (100) to avoid pagination complexity in
+    Phase 1.  PRs with more than 100 comments may get a duplicate
+    review comment.  A future improvement could iterate through
+    paginated results.
     """
     url = f"{api_url}/repos/{repo}/issues/{pr_number}/comments?per_page=100"
     req = urllib.request.Request(
