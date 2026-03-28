@@ -148,38 +148,48 @@ class TestLoadFileContents:
         (tmp_path / "src" / "app.py").write_text("print('hello')\n", encoding="utf-8")
         (tmp_path / "README.md").write_text("# Readme\n", encoding="utf-8")
 
-        result = load_file_contents(
+        contents, skipped = load_file_contents(
             ["src/app.py", "README.md"],
             workspace=str(tmp_path),
         )
-        assert "src/app.py" in result
-        assert result["src/app.py"] == "print('hello')\n"
-        assert "README.md" in result
-        assert result["README.md"] == "# Readme\n"
+        assert "src/app.py" in contents
+        assert contents["src/app.py"] == "print('hello')\n"
+        assert "README.md" in contents
+        assert contents["README.md"] == "# Readme\n"
+        assert skipped == []
 
     def test_skips_missing_files(self, tmp_path):
-        """Missing files are skipped, not an error."""
-        result = load_file_contents(
+        """Missing files are skipped with reason 'not_found'."""
+        contents, skipped = load_file_contents(
             ["does/not/exist.py"],
             workspace=str(tmp_path),
         )
-        assert result == {}
+        assert contents == {}
+        assert len(skipped) == 1
+        assert skipped[0].path == "does/not/exist.py"
+        assert skipped[0].reason == "not_found"
 
     def test_skips_binary_files(self, tmp_path):
-        """Binary files (non-UTF-8) are skipped."""
+        """Binary files (non-UTF-8) are skipped with reason 'binary'."""
         binary_file = tmp_path / "image.png"
         binary_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\xff" * 100)
 
-        result = load_file_contents(["image.png"], workspace=str(tmp_path))
-        assert result == {}
+        contents, skipped = load_file_contents(["image.png"], workspace=str(tmp_path))
+        assert contents == {}
+        assert len(skipped) == 1
+        assert skipped[0].path == "image.png"
+        assert skipped[0].reason == "binary"
 
     def test_skips_large_files(self, tmp_path):
-        """Files exceeding _MAX_FILE_SIZE are skipped."""
+        """Files exceeding _MAX_FILE_SIZE are skipped with reason 'too_large'."""
         large_file = tmp_path / "huge.txt"
         large_file.write_text("x" * (_MAX_FILE_SIZE + 1), encoding="utf-8")
 
-        result = load_file_contents(["huge.txt"], workspace=str(tmp_path))
-        assert result == {}
+        contents, skipped = load_file_contents(["huge.txt"], workspace=str(tmp_path))
+        assert contents == {}
+        assert len(skipped) == 1
+        assert skipped[0].path == "huge.txt"
+        assert skipped[0].reason == "too_large"
 
     def test_loads_files_at_size_limit(self, tmp_path):
         """Files exactly at _MAX_FILE_SIZE are loaded."""
@@ -187,8 +197,9 @@ class TestLoadFileContents:
         content = "x" * _MAX_FILE_SIZE
         just_right.write_text(content, encoding="utf-8")
 
-        result = load_file_contents(["ok.txt"], workspace=str(tmp_path))
-        assert "ok.txt" in result
+        contents, skipped = load_file_contents(["ok.txt"], workspace=str(tmp_path))
+        assert "ok.txt" in contents
+        assert skipped == []
 
     def test_handles_mixed_files(self, tmp_path):
         """Mix of loadable and skippable files."""
@@ -196,38 +207,43 @@ class TestLoadFileContents:
         (tmp_path / "binary.bin").write_bytes(b"\x00\xff\xfe")
         # missing.py doesn't exist
 
-        result = load_file_contents(
+        contents, skipped = load_file_contents(
             ["good.py", "binary.bin", "missing.py"],
             workspace=str(tmp_path),
         )
-        assert list(result.keys()) == ["good.py"]
+        assert list(contents.keys()) == ["good.py"]
+        assert len(skipped) == 2
+        skip_paths = {s.path for s in skipped}
+        assert "binary.bin" in skip_paths
+        assert "missing.py" in skip_paths
 
     def test_empty_file_list(self, tmp_path):
         """Empty file list → empty result."""
-        result = load_file_contents([], workspace=str(tmp_path))
-        assert result == {}
+        contents, skipped = load_file_contents([], workspace=str(tmp_path))
+        assert contents == {}
+        assert skipped == []
 
     def test_uses_github_workspace_env(self, tmp_path, monkeypatch):
         """Uses GITHUB_WORKSPACE env var when no workspace arg given."""
         (tmp_path / "file.py").write_text("code\n", encoding="utf-8")
         monkeypatch.setenv("GITHUB_WORKSPACE", str(tmp_path))
 
-        result = load_file_contents(["file.py"])
-        assert "file.py" in result
+        contents, skipped = load_file_contents(["file.py"])
+        assert "file.py" in contents
 
     def test_empty_file_is_loaded(self, tmp_path):
         """Empty files are loaded (they are valid text)."""
         (tmp_path / "empty.py").write_text("", encoding="utf-8")
-        result = load_file_contents(["empty.py"], workspace=str(tmp_path))
-        assert "empty.py" in result
-        assert result["empty.py"] == ""
+        contents, skipped = load_file_contents(["empty.py"], workspace=str(tmp_path))
+        assert "empty.py" in contents
+        assert contents["empty.py"] == ""
 
     def test_utf8_with_bom(self, tmp_path):
         """UTF-8 with BOM is loaded."""
         bom_file = tmp_path / "bom.py"
         bom_file.write_bytes(b"\xef\xbb\xbf# coding: utf-8\n")
-        result = load_file_contents(["bom.py"], workspace=str(tmp_path))
-        assert "bom.py" in result
+        contents, skipped = load_file_contents(["bom.py"], workspace=str(tmp_path))
+        assert "bom.py" in contents
 
 
 # =====================================================================
@@ -511,8 +527,8 @@ class TestPullRequestContextAssembly:
         (tmp_path / "app.py").write_text("import os\n", encoding="utf-8")
         (tmp_path / "config.py").write_text("DEBUG = True\n", encoding="utf-8")
 
-        contents = load_file_contents(["app.py", "config.py"], workspace=str(tmp_path))
-        pr_content = PRContent.from_dict(contents)
+        contents, skipped = load_file_contents(["app.py", "config.py"], workspace=str(tmp_path))
+        pr_content = PRContent.from_dict(contents, skipped=skipped)
         ctx = PullRequestContext.from_pr_content(pr_content)
 
         assert ctx.file_count == 2
@@ -523,11 +539,12 @@ class TestPullRequestContextAssembly:
         """No loadable files → empty but valid PullRequestContext."""
         from reviewer.models import PRContent, PullRequestContext
 
-        contents = load_file_contents(["missing.py"], workspace=str(tmp_path))
-        pr_content = PRContent.from_dict(contents)
+        contents, skipped = load_file_contents(["missing.py"], workspace=str(tmp_path))
+        pr_content = PRContent.from_dict(contents, skipped=skipped)
         ctx = PullRequestContext.from_pr_content(pr_content)
 
         assert ctx.file_count == 0
+        assert pr_content.skipped_file_count == 1
 
     def test_full_pipeline_with_loaded_contents(self, tmp_path):
         """Loaded contents flow through analyse() correctly."""
@@ -537,8 +554,8 @@ class TestPullRequestContextAssembly:
         (tmp_path / "deploy.py").write_text(
             "AWS_KEY = 'AKIAIOSFODNN7EXAMPLE'\n", encoding="utf-8"
         )
-        contents = load_file_contents(["deploy.py"], workspace=str(tmp_path))
-        pr_content = PRContent.from_dict(contents)
+        contents, skipped = load_file_contents(["deploy.py"], workspace=str(tmp_path))
+        pr_content = PRContent.from_dict(contents, skipped=skipped)
 
         analysis = analyse(pr_content)
         assert len(analysis.findings) >= 1
@@ -553,8 +570,8 @@ class TestPullRequestContextAssembly:
         from reviewer.models import PRContent
 
         (tmp_path / "clean.py").write_text("print('hello')\n", encoding="utf-8")
-        contents = load_file_contents(["clean.py"], workspace=str(tmp_path))
-        pr_content = PRContent.from_dict(contents)
+        contents, skipped = load_file_contents(["clean.py"], workspace=str(tmp_path))
+        pr_content = PRContent.from_dict(contents, skipped=skipped)
 
         analysis = analyse(pr_content)
         decision, risk = derive_decision_and_risk(analysis.findings)
