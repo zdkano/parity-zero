@@ -2,46 +2,103 @@
 
 Coordinates the Phase 1 reviewer flow described in ADR-004:
 
-  1. Reasoning layer        — LLM-led contextual review (reasoning.py).
-  2. Deterministic checks  — narrow supporting guardrails (checks.py).
+  1. Deterministic checks  — narrow high-signal guardrails (checks.py).
+  2. Reasoning layer        — contextual LLM review stub (reasoning.py).
 
-The engine merges results from both strategies, deduplicates, and returns
-a flat list of Finding objects.
+The engine merges results from both strategies, deduplicates findings,
+derives a deterministic decision/risk_score, and returns a structured
+AnalysisResult.
 
-Phase 1 keeps the LLM reviewer as the MVP.  Deterministic checks remain
-supporting placeholders so parity-zero stays focused on AI review rather
-than broad scanner-style coverage.
+Decision / risk_score derivation rule (Phase 1 MVP):
+  - Each finding contributes a weight based on severity:
+      high = 25, medium = 15, low = 5
+  - risk_score = min(sum of weights, 100)
+  - decision  = PASS  if risk_score < 25
+              = WARN  if risk_score >= 25
+  BLOCK is not used in Phase 1 unless explicitly warranted.
 """
 
 from __future__ import annotations
 
-from schemas.findings import Finding
+from dataclasses import dataclass, field
+
+from schemas.findings import Decision, Finding, Severity
 from reviewer.checks import run_deterministic_checks
 from reviewer.reasoning import run_reasoning
 
+# Severity weights used for risk_score derivation.
+_SEVERITY_WEIGHTS: dict[Severity, int] = {
+    Severity.HIGH: 25,
+    Severity.MEDIUM: 15,
+    Severity.LOW: 5,
+}
 
-def analyse(changed_files: list[str]) -> list[Finding]:
-    """Run all analysis strategies against the changed files.
+# risk_score threshold above which the decision becomes WARN.
+_WARN_THRESHOLD = 25
+
+
+@dataclass
+class AnalysisResult:
+    """Combined output from all analysis strategies.
+
+    Attributes:
+        findings: Deduplicated list of findings from all strategies.
+        reasoning_notes: Contextual notes from the reasoning layer.
+            Informational only — they do not affect decision or risk_score.
+    """
+
+    findings: list[Finding] = field(default_factory=list)
+    reasoning_notes: list[str] = field(default_factory=list)
+
+
+def analyse(file_contents: dict[str, str]) -> AnalysisResult:
+    """Run all analysis strategies against the changed file contents.
 
     Args:
-        changed_files: Paths (repo-relative) of files changed in the PR.
+        file_contents: Mapping of repo-relative file paths to their text
+            content.
 
     Returns:
-        A combined, deduplicated list of findings.
+        An AnalysisResult with combined findings and reasoning notes.
     """
     findings: list[Finding] = []
 
-    findings.extend(run_deterministic_checks(changed_files))
-    findings.extend(run_reasoning(changed_files))
+    findings.extend(run_deterministic_checks(file_contents))
 
-    return _deduplicate(findings)
+    reasoning_result = run_reasoning(file_contents)
+    findings.extend(reasoning_result.findings)
+
+    return AnalysisResult(
+        findings=_deduplicate(findings),
+        reasoning_notes=reasoning_result.notes,
+    )
+
+
+def derive_decision_and_risk(findings: list[Finding]) -> tuple[Decision, int]:
+    """Derive a deterministic decision and risk_score from findings.
+
+    Uses the Phase 1 MVP rule documented at module level.
+
+    Args:
+        findings: The list of findings to evaluate.
+
+    Returns:
+        A (decision, risk_score) tuple.
+    """
+    if not findings:
+        return Decision.PASS, 0
+
+    risk_score = min(
+        sum(_SEVERITY_WEIGHTS.get(f.severity, 0) for f in findings),
+        100,
+    )
+
+    decision = Decision.WARN if risk_score >= _WARN_THRESHOLD else Decision.PASS
+    return decision, risk_score
 
 
 def _deduplicate(findings: list[Finding]) -> list[Finding]:
-    """Remove duplicate findings based on id.
-
-    TODO: Consider deduplicating on (file, start_line, category) as well.
-    """
+    """Remove duplicate findings based on id."""
     seen: set[str] = set()
     unique: list[Finding] = []
     for f in findings:

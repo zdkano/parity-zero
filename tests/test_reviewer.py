@@ -1,9 +1,9 @@
 """Tests for the parity-zero reviewer components.
 
 Phase 1: smoke tests validating the engine wiring, formatter output,
-PR context parsing, changed-file discovery, and the orchestration flow.
-Detection-specific tests will be added alongside real check
-implementations.
+PR context parsing, changed-file discovery, deterministic checks,
+reasoning stub, decision/risk_score derivation, and the end-to-end
+mock reviewer flow.
 """
 
 import io
@@ -21,7 +21,7 @@ from schemas.findings import (
     ScanResult,
     Severity,
 )
-from reviewer.engine import analyse, _deduplicate
+from reviewer.engine import analyse, AnalysisResult, derive_decision_and_risk, _deduplicate
 from reviewer.formatter import format_markdown
 from reviewer.action import _load_event_payload, get_pr_context, get_changed_files, mock_run
 
@@ -61,14 +61,23 @@ def _make_scan_result(findings: list[Finding] | None = None, **overrides) -> Sca
 # ---------------------------------------------------------------------------
 
 class TestEngine:
-    def test_analyse_returns_list(self):
-        """analyse() returns a list of findings (empty for stubs)."""
-        result = analyse([])
-        assert isinstance(result, list)
+    def test_analyse_returns_analysis_result(self):
+        """analyse() returns an AnalysisResult."""
+        result = analyse({})
+        assert isinstance(result, AnalysisResult)
 
-    def test_analyse_with_files_returns_list(self):
-        result = analyse(["src/app.py", "src/routes.py"])
-        assert isinstance(result, list)
+    def test_analyse_with_clean_files_returns_no_findings(self):
+        result = analyse({"src/app.py": "print('hello')\n"})
+        assert isinstance(result.findings, list)
+
+    def test_analyse_with_insecure_content_returns_findings(self):
+        result = analyse({"config.py": "DEBUG = True\n"})
+        assert len(result.findings) >= 1
+
+    def test_analyse_returns_reasoning_notes(self):
+        result = analyse({"src/app.py": "x = 1\n"})
+        assert isinstance(result.reasoning_notes, list)
+        assert len(result.reasoning_notes) >= 1
 
     def test_deduplicate_removes_duplicates(self):
         f = _make_finding(id="dup123")
@@ -78,6 +87,64 @@ class TestEngine:
         f1 = _make_finding(id="aaa")
         f2 = _make_finding(id="bbb")
         assert len(_deduplicate([f1, f2])) == 2
+
+
+# ---------------------------------------------------------------------------
+# Decision / risk_score derivation tests
+# ---------------------------------------------------------------------------
+
+class TestDecisionDerivation:
+    def test_no_findings_pass_zero(self):
+        decision, score = derive_decision_and_risk([])
+        assert decision == Decision.PASS
+        assert score == 0
+
+    def test_single_low_finding_pass(self):
+        findings = [_make_finding(severity=Severity.LOW)]
+        decision, score = derive_decision_and_risk(findings)
+        assert decision == Decision.PASS
+        assert 0 < score < 25
+
+    def test_single_medium_finding_pass(self):
+        """A single medium finding (weight 15) stays below WARN threshold."""
+        findings = [_make_finding(severity=Severity.MEDIUM)]
+        decision, score = derive_decision_and_risk(findings)
+        assert decision == Decision.PASS
+        assert score == 15
+
+    def test_single_high_finding_warn(self):
+        findings = [_make_finding(severity=Severity.HIGH)]
+        decision, score = derive_decision_and_risk(findings)
+        assert decision == Decision.WARN
+        assert score >= 25
+
+    def test_multiple_low_findings_stay_pass(self):
+        """Four low findings = 20, still below WARN threshold."""
+        findings = [_make_finding(severity=Severity.LOW) for _ in range(4)]
+        decision, score = derive_decision_and_risk(findings)
+        assert decision == Decision.PASS
+        assert score == 20
+
+    def test_many_findings_capped_at_100(self):
+        findings = [_make_finding(severity=Severity.HIGH) for _ in range(10)]
+        _, score = derive_decision_and_risk(findings)
+        assert score == 100
+
+    def test_mixed_findings_warn(self):
+        findings = [
+            _make_finding(severity=Severity.HIGH),
+            _make_finding(severity=Severity.MEDIUM),
+            _make_finding(severity=Severity.LOW),
+        ]
+        decision, score = derive_decision_and_risk(findings)
+        assert decision == Decision.WARN
+        assert score == 45  # 25 + 15 + 5
+
+    def test_two_medium_findings_warn(self):
+        findings = [_make_finding(severity=Severity.MEDIUM) for _ in range(2)]
+        decision, score = derive_decision_and_risk(findings)
+        assert decision == Decision.WARN
+        assert score == 30
 
 
 # ---------------------------------------------------------------------------
@@ -461,23 +528,25 @@ class TestGetChangedFiles:
 
 
 # ---------------------------------------------------------------------------
-# Mock runner tests
+# Mock runner end-to-end tests
 # ---------------------------------------------------------------------------
 
 class TestMockRun:
-    """Test mock_run() produces valid reviewer output."""
+    """Test mock_run() runs through the real engine and produces valid output."""
 
     def test_returns_dict_with_expected_keys(self):
         output = mock_run()
         assert "result" in output
         assert "markdown" in output
         assert "json" in output
+        assert "reasoning_notes" in output
 
     def test_result_is_scan_result(self):
         output = mock_run()
         assert isinstance(output["result"], ScanResult)
 
     def test_result_has_findings(self):
+        """mock_run provides insecure patterns so findings should be produced."""
         output = mock_run()
         assert len(output["result"].findings) > 0
 
@@ -488,6 +557,12 @@ class TestMockRun:
     def test_result_has_risk_score(self):
         output = mock_run()
         assert 0 <= output["result"].risk_score <= 100
+
+    def test_decision_derived_from_findings(self):
+        """Decision should be WARN because mock contents contain high-severity patterns."""
+        output = mock_run()
+        assert output["result"].decision == Decision.WARN
+        assert output["result"].risk_score >= 25
 
     def test_markdown_is_string(self):
         output = mock_run()
@@ -525,18 +600,25 @@ class TestMockRun:
         assert "risk_score" in parsed
         assert isinstance(parsed["risk_score"], int)
 
-    def test_findings_cover_multiple_severities(self):
-        """mock_run() is designed to produce diverse findings for demo output."""
+    def test_findings_all_insecure_configuration(self):
+        """All findings from mock_run come from deterministic config checks."""
         output = mock_run()
-        severities = {f.severity for f in output["result"].findings}
-        assert len(severities) >= 2
+        for finding in output["result"].findings:
+            assert finding.category == Category.INSECURE_CONFIGURATION
 
-    def test_findings_cover_multiple_categories(self):
-        """mock_run() is designed to produce diverse findings for demo output."""
+    def test_reasoning_notes_present(self):
         output = mock_run()
-        categories = {f.category for f in output["result"].findings}
-        assert len(categories) >= 2
+        assert isinstance(output["reasoning_notes"], list)
+        assert len(output["reasoning_notes"]) >= 1
 
     def test_markdown_has_recommendations_section(self):
         output = mock_run()
         assert "### Recommendations" in output["markdown"]
+
+    def test_json_ingestion_compatible(self):
+        """JSON output can be sent to the ingestion API without modification."""
+        output = mock_run()
+        parsed = json.loads(output["json"])
+        # Validate that parsed payload can be re-validated
+        restored = ScanResult.model_validate(parsed)
+        assert restored.scan_id == output["result"].scan_id

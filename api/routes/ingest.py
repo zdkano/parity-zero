@@ -11,8 +11,12 @@ See architecture.md § Central Ingestion API for responsibilities.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter
 from schemas.findings import ScanResult
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -21,20 +25,33 @@ router = APIRouter()
 async def ingest_scan(result: ScanResult) -> dict:
     """Receive and validate a scan result.
 
+    FastAPI + Pydantic perform automatic payload validation via the
+    ``ScanResult`` type annotation.  Malformed payloads receive a 422
+    response with validation details.
+
     Args:
         result: A ScanResult payload conforming to the findings schema.
 
     Returns:
-        Acknowledgement with the scan_id.
+        Acknowledgement with the scan_id, decision, risk_score, and
+        findings_count.
 
     TODO:
         - Persist the result to Postgres (Phase 2).
         - Add authentication / API key validation.
     """
-    # Pydantic validation happens automatically via the type annotation.
-    # Phase 1: log / acknowledge only.
+    logger.info(
+        "Ingested scan %s: %d finding(s), decision=%s, risk=%d",
+        result.scan_id,
+        len(result.findings),
+        result.decision.value,
+        result.risk_score,
+    )
+
     return {
         "status": "accepted",
         "scan_id": result.scan_id,
+        "decision": result.decision.value,
+        "risk_score": result.risk_score,
         "findings_count": len(result.findings),
     }
