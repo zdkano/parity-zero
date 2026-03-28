@@ -354,6 +354,10 @@ def relevant_memory_entries(
 # Concern generation (ADR-022)
 # ======================================================================
 
+# Maximum number of items shown in concern context (paths, patterns, etc.)
+_MAX_CONCERN_CONTEXT_ITEMS = 5
+_MAX_PATTERN_DISPLAY_ITEMS = 3
+
 
 def generate_concerns(
     plan: ReviewPlan,
@@ -397,12 +401,12 @@ def generate_concerns(
             ),
             confidence="medium" if overlap else "low",
             basis="sensitive_path_overlap+auth_area",
-            related_paths=all_related[:5],
+            related_paths=all_related[:_MAX_CONCERN_CONTEXT_ITEMS],
         ))
 
     # -- Auth consistency concern: baseline auth patterns + auth paths --
     if plan.auth_pattern_context and plan.auth_paths_touched:
-        patterns = ", ".join(plan.auth_pattern_context[:3])
+        patterns = ", ".join(plan.auth_pattern_context[:_MAX_PATTERN_DISPLAY_ITEMS])
         concerns.append(ReviewConcern(
             category="authentication",
             title="Auth pattern consistency",
@@ -413,7 +417,7 @@ def generate_concerns(
             ),
             confidence="medium",
             basis="baseline_auth_pattern+auth_path",
-            related_paths=list(plan.auth_paths_touched[:5]),
+            related_paths=list(plan.auth_paths_touched[:_MAX_CONCERN_CONTEXT_ITEMS]),
         ))
 
     # -- Auth area concern (standalone, no sensitive overlap) --
@@ -427,7 +431,7 @@ def generate_concerns(
             ),
             confidence="low",
             basis="auth_area",
-            related_paths=list(plan.auth_paths_touched[:5]),
+            related_paths=list(plan.auth_paths_touched[:_MAX_CONCERN_CONTEXT_ITEMS]),
         ))
 
     # -- Sensitive path concern (standalone, no auth overlap) --
@@ -442,12 +446,12 @@ def generate_concerns(
             ),
             confidence="low",
             basis="sensitive_path_overlap",
-            related_paths=list(plan.sensitive_paths_touched[:5]),
+            related_paths=list(plan.sensitive_paths_touched[:_MAX_CONCERN_CONTEXT_ITEMS]),
         ))
 
     # -- Memory-informed concern: recurring themes relevant to PR --
     if plan.relevant_memory_categories:
-        cats = ", ".join(plan.relevant_memory_categories[:3])
+        cats = ", ".join(plan.relevant_memory_categories[:_MAX_PATTERN_DISPLAY_ITEMS])
         memory_paths = _paths_for_memory_categories(
             plan.relevant_memory_categories, ctx.pr_content.paths,
         )
@@ -461,12 +465,12 @@ def generate_concerns(
             ),
             confidence="low",
             basis="memory_match",
-            related_paths=memory_paths[:5],
+            related_paths=memory_paths[:_MAX_CONCERN_CONTEXT_ITEMS],
         ))
 
     # -- Framework convention concern: framework + sensitive paths --
     if plan.framework_context and plan.sensitive_paths_touched:
-        frameworks = ", ".join(plan.framework_context[:3])
+        frameworks = ", ".join(plan.framework_context[:_MAX_PATTERN_DISPLAY_ITEMS])
         concerns.append(ReviewConcern(
             category="insecure_configuration",
             title="Framework-sensitive area modified",
@@ -477,7 +481,7 @@ def generate_concerns(
             ),
             confidence="low",
             basis="framework_context+sensitive_path",
-            related_paths=list(plan.sensitive_paths_touched[:5]),
+            related_paths=list(plan.sensitive_paths_touched[:_MAX_CONCERN_CONTEXT_ITEMS]),
         ))
 
     return concerns
@@ -493,7 +497,7 @@ def _paths_for_memory_categories(
         return []
     relevant_cats = set(memory_categories) & path_cats
     if not relevant_cats:
-        return changed_paths[:3]
+        return changed_paths[:_MAX_PATTERN_DISPLAY_ITEMS]
     # Return paths whose inferred categories overlap with memory categories
     result: list[str] = []
     for p in changed_paths:

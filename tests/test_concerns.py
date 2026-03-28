@@ -547,7 +547,10 @@ class TestNoOverclaiming:
         plan = build_review_plan(ctx)
         concerns = generate_concerns(plan, ctx)
 
-        vulnerability_words = ["vulnerability", "exploit", "attack", "breach", "compromised"]
+        vulnerability_words = [
+            "vulnerability", "exploit", "attack", "breach",
+            "compromised", "confirmed vulnerability", "proven exploit",
+        ]
         for c in concerns:
             summary_lower = c.summary.lower()
             for word in vulnerability_words:
