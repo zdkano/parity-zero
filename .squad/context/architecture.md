@@ -271,6 +271,35 @@ analytics surfaces may consume trace data.
 
 ---
 
+### 6g. PR Validation Harness (ADR-032)
+
+A lightweight scenario-based testing framework for validating reviewer
+behavior across representative pull request situations.
+
+Components:
+- **ValidationScenario** — pairs synthetic PR inputs (changed files,
+  baseline profile, review memory, provider mode) with declarative
+  ``ExpectedBehavior`` assertions
+- **Curated corpus** — 7 representative scenarios covering auth-sensitive,
+  config, trivial/docs, memory-influenced, deterministic-only,
+  provider-enriched, and low-noise review paths
+- **Validation runner** (``run_scenario()``) — executes a scenario through
+  the full reviewer pipeline and evaluates expectations as structured
+  ``Assertion`` results
+
+The harness validates: provider gate behavior, findings count and category
+presence/absence, concern and observation generation, markdown output
+sections, trust-boundary invariants, and ScanResult contract stability.
+
+The harness does **not** change: ScanResult, scoring, decision logic,
+or the reviewer pipeline.  It uses only ``DisabledProvider`` and
+``MockProvider`` — no live credentials required.
+
+Phase 1 status: initial corpus of 7 scenarios with 66 focused tests.
+The corpus will grow as the reviewer pipeline matures.
+
+---
+
 ### 7. Memory / Context Store
 Persistent storage for review context that accumulates over time.
 
