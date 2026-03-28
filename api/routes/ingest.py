@@ -13,8 +13,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
-from pydantic import ValidationError
+from fastapi import APIRouter
 from schemas.findings import ScanResult
 
 logger = logging.getLogger(__name__)

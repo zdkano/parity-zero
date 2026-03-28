@@ -174,8 +174,10 @@ def run() -> None:
     context = get_pr_context()
     changed_files = get_changed_files(context["repo"], context["pr_number"])
 
-    # In a real workflow, read file contents from the workspace checkout.
-    # Phase 1 passes paths with empty content for files we cannot read.
+    # TODO(phase-1): Read actual file contents from the workspace checkout.
+    # Currently passes empty content — deterministic checks will not fire
+    # in real workflows until file reading is wired in.  The mock_run()
+    # path demonstrates the full engine with realistic content.
     file_contents = {fp: "" for fp in changed_files}
 
     analysis = analyse(file_contents)
