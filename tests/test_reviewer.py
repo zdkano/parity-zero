@@ -16,13 +16,14 @@ import pytest
 from schemas.findings import (
     Category,
     Confidence,
+    Decision,
     Finding,
     ScanResult,
     Severity,
 )
 from reviewer.engine import analyse, _deduplicate
 from reviewer.formatter import format_markdown
-from reviewer.action import _load_event_payload, get_pr_context, get_changed_files
+from reviewer.action import _load_event_payload, get_pr_context, get_changed_files, mock_run
 
 
 # ---------------------------------------------------------------------------
@@ -43,14 +44,16 @@ def _make_finding(**overrides) -> Finding:
     return Finding(**defaults)
 
 
-def _make_scan_result(findings: list[Finding] | None = None) -> ScanResult:
-    return ScanResult(
-        repo="acme/webapp",
-        pr_number=42,
-        commit_sha="deadbeef",
-        ref="feature/new-endpoint",
-        findings=findings or [],
-    )
+def _make_scan_result(findings: list[Finding] | None = None, **overrides) -> ScanResult:
+    defaults = {
+        "repo": "acme/webapp",
+        "pr_number": 42,
+        "commit_sha": "deadbeef",
+        "ref": "feature/new-endpoint",
+        "findings": findings if findings is not None else [],
+    }
+    defaults.update(overrides)
+    return ScanResult(**defaults)
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +122,77 @@ class TestFormatter:
         result = _make_scan_result()
         md = format_markdown(result)
         assert result.commit_sha[:7] in md
+
+    def test_decision_badge_pass(self):
+        result = _make_scan_result(findings=[])
+        md = format_markdown(result)
+        assert "✅ Pass" in md
+
+    def test_decision_badge_warn(self):
+        result = _make_scan_result(
+            findings=[_make_finding()],
+            decision=Decision.WARN,
+        )
+        md = format_markdown(result)
+        assert "⚠️ Warn" in md
+
+    def test_decision_badge_block(self):
+        result = _make_scan_result(
+            findings=[_make_finding()],
+            decision=Decision.BLOCK,
+        )
+        md = format_markdown(result)
+        assert "🚫 Block" in md
+
+    def test_risk_score_in_header(self):
+        result = _make_scan_result(findings=[], risk_score=45)
+        md = format_markdown(result)
+        assert "45/100" in md
+
+    def test_risk_bar_zero(self):
+        result = _make_scan_result(findings=[], risk_score=0)
+        md = format_markdown(result)
+        assert "0/100" in md
+
+    def test_risk_bar_hundred(self):
+        result = _make_scan_result(findings=[], risk_score=100)
+        md = format_markdown(result)
+        assert "100/100" in md
+
+    def test_recommendations_section(self):
+        findings = [
+            _make_finding(title="Issue A", recommendation="Fix A."),
+            _make_finding(title="Issue B", recommendation="Fix B."),
+        ]
+        md = format_markdown(_make_scan_result(findings=findings))
+        assert "### Recommendations" in md
+        assert "**Issue A:** Fix A." in md
+        assert "**Issue B:** Fix B." in md
+
+    def test_no_recommendations_section_when_none(self):
+        findings = [_make_finding(recommendation=None)]
+        md = format_markdown(_make_scan_result(findings=findings))
+        assert "### Recommendations" not in md
+
+    def test_footer_includes_decision(self):
+        result = _make_scan_result(
+            findings=[_make_finding()],
+            decision=Decision.WARN,
+        )
+        md = format_markdown(result)
+        # The footer line should include the decision value
+        assert "Decision: warn" in md
+
+    def test_footer_includes_risk_score(self):
+        result = _make_scan_result(findings=[], risk_score=30)
+        md = format_markdown(result)
+        assert "Risk: 30" in md
+
+    def test_no_findings_still_has_footer(self):
+        result = _make_scan_result(findings=[])
+        md = format_markdown(result)
+        assert "---" in md
+        assert result.scan_id[:12] in md
 
 
 # ---------------------------------------------------------------------------
@@ -384,3 +458,83 @@ class TestGetChangedFiles:
         get_changed_files("acme/app", 1)
         assert captured_urls
         assert captured_urls[0].startswith("https://git.corp.example.com/api/v3/")
+
+
+# ---------------------------------------------------------------------------
+# Mock runner tests
+# ---------------------------------------------------------------------------
+
+class TestMockRun:
+    """Test mock_run() produces valid reviewer output."""
+
+    def test_returns_dict_with_expected_keys(self):
+        output = mock_run()
+        assert "result" in output
+        assert "markdown" in output
+        assert "json" in output
+
+    def test_result_is_scan_result(self):
+        output = mock_run()
+        assert isinstance(output["result"], ScanResult)
+
+    def test_result_has_findings(self):
+        output = mock_run()
+        assert len(output["result"].findings) > 0
+
+    def test_result_has_decision(self):
+        output = mock_run()
+        assert output["result"].decision in (Decision.PASS, Decision.WARN, Decision.BLOCK)
+
+    def test_result_has_risk_score(self):
+        output = mock_run()
+        assert 0 <= output["result"].risk_score <= 100
+
+    def test_markdown_is_string(self):
+        output = mock_run()
+        assert isinstance(output["markdown"], str)
+        assert len(output["markdown"]) > 0
+
+    def test_markdown_contains_header(self):
+        output = mock_run()
+        assert "parity-zero Security Review" in output["markdown"]
+
+    def test_markdown_contains_decision(self):
+        output = mock_run()
+        assert "Decision:" in output["markdown"]
+
+    def test_markdown_contains_risk(self):
+        output = mock_run()
+        assert "/100" in output["markdown"]
+
+    def test_json_is_valid(self):
+        output = mock_run()
+        parsed = json.loads(output["json"])
+        assert isinstance(parsed, dict)
+
+    def test_json_round_trips_to_scan_result(self):
+        output = mock_run()
+        restored = ScanResult.model_validate_json(output["json"])
+        assert restored.repo == output["result"].repo
+        assert restored.decision == output["result"].decision
+        assert restored.risk_score == output["result"].risk_score
+        assert len(restored.findings) == len(output["result"].findings)
+
+    def test_json_has_risk_score(self):
+        output = mock_run()
+        parsed = json.loads(output["json"])
+        assert "risk_score" in parsed
+        assert isinstance(parsed["risk_score"], int)
+
+    def test_findings_cover_multiple_severities(self):
+        output = mock_run()
+        severities = {f.severity for f in output["result"].findings}
+        assert len(severities) >= 2
+
+    def test_findings_cover_multiple_categories(self):
+        output = mock_run()
+        categories = {f.category for f in output["result"].findings}
+        assert len(categories) >= 2
+
+    def test_markdown_has_recommendations_section(self):
+        output = mock_run()
+        assert "### Recommendations" in output["markdown"]

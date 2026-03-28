@@ -295,6 +295,30 @@ class TestScanResult:
         sr = _make_scan_result()
         assert sr.decision == Decision.PASS
 
+    def test_risk_score_defaults_to_zero(self):
+        sr = _make_scan_result()
+        assert sr.risk_score == 0
+
+    def test_risk_score_can_be_set(self):
+        sr = _make_scan_result(risk_score=75)
+        assert sr.risk_score == 75
+
+    def test_risk_score_min_boundary(self):
+        sr = _make_scan_result(risk_score=0)
+        assert sr.risk_score == 0
+
+    def test_risk_score_max_boundary(self):
+        sr = _make_scan_result(risk_score=100)
+        assert sr.risk_score == 100
+
+    def test_risk_score_below_zero_rejected(self):
+        with pytest.raises(ValidationError):
+            _make_scan_result(risk_score=-1)
+
+    def test_risk_score_above_100_rejected(self):
+        with pytest.raises(ValidationError):
+            _make_scan_result(risk_score=101)
+
     def test_decision_can_be_set(self):
         sr = _make_scan_result(decision=Decision.BLOCK)
         assert sr.decision == Decision.BLOCK
@@ -338,6 +362,7 @@ class TestScanResult:
             "ref",
             "timestamp",
             "decision",
+            "risk_score",
             "findings",
         }
         assert set(data.keys()) == expected_keys
@@ -365,10 +390,14 @@ class TestScanResult:
         assert "ref" in payload
         assert "timestamp" in payload
         assert "decision" in payload
+        assert "risk_score" in payload
         assert "findings" in payload
 
         # Decision is serialised as its string value
         assert payload["decision"] == "warn"
+
+        # Risk score is an integer
+        assert isinstance(payload["risk_score"], int)
 
         # Findings are serialised as dicts with expected keys
         assert len(payload["findings"]) == 1
