@@ -58,6 +58,7 @@ Combines PR delta information with repository context for review.
 
 Responsibilities:
 - carry changed files (PRContent) from the PR
+- track skipped files with path and reason (SkippedFile — ADR-036)
 - attach baseline repository profile
 - attach review memory (when available)
 - present a unified context object to the review engine
@@ -346,6 +347,11 @@ The current implementation uses SQLite for simplicity:
 - built-in to Python — no external database needed
 - file-based — easy to inspect, back up, or reset
 - suitable for Phase 2 bridge work
+
+The `runs` table stores core ScanResult fields plus **run summary metadata**
+(ADR-036): provider invocation status, provider gate decision,
+concern/observation/note counts, changed/skipped file counts.
+Only summary counts are stored — full internal objects are not persisted.
 
 Migration to Postgres is expected in later phases as query, reporting,
 and multi-user needs grow.  See ADR-006 for original Postgres intent

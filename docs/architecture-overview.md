@@ -55,7 +55,9 @@ Backend Ingest ──────────────── POST ScanResult 
   │  (authenticated, safe fallback on failure)
   │
   ▼
-SQLite Store ────────────────── persisted runs + findings
+SQLite Store ────────────────── persisted runs + findings + run summary metadata
+  │  (provider status, concern/observation/note counts,
+  │   changed/skipped file counts — ADR-036)
   │
   ▼
 Retrieval API ───────────────── GET /runs, GET /runs/{scan_id}
@@ -83,6 +85,9 @@ Abstract interface for AI reasoning backends. Implementations: `DisabledProvider
 
 ### ReviewTrace
 Internal traceability record capturing pipeline decisions: gate results, bundle stats, concern/observation counts, provider invocation outcome. Not exposed in ScanResult or markdown.
+
+### SkippedFile (ADR-036)
+Tracks changed files that could not be loaded (deleted, binary, too large, unreadable). Each entry has a `path` and `reason`. Carried in `PRContent.skipped_files`. Summary count persisted to backend via `skipped_files_count`.
 
 ## Trust Boundary
 

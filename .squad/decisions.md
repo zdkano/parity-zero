@@ -1750,3 +1750,62 @@ Backend ingest failure is logged as a warning but does not affect the reviewer e
 - All tests use in-memory SQLite — no database file created during testing
 - All 1053 existing tests continue to pass unchanged
 - Total: 1104 tests pass
+
+---
+
+## ADR-036: Hardening pass — skipped-file awareness, test isolation, and run summary metadata
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+Perform a combined hardening and storage-shape evolution pass: add skipped-file awareness to the reviewer pipeline, harden test isolation, and extend backend persistence with run summary metadata columns.
+
+### Context
+ADR-035 delivered thin backend persistence. Several follow-up improvements were identified:
+- `load_file_contents()` silently discarded files it could not load — no metadata about what was skipped or why
+- Test suites shared module-level fixtures, risking cross-test contamination
+- The `runs` table stored only core ScanResult fields — no visibility into provider behaviour, concern/observation volume, or file discovery stats
+
+### Skipped-file awareness
+- New `SkippedFile` frozen dataclass in `reviewer/models.py` — captures `path` and `reason` (`not_found`, `binary`, `too_large`, `unreadable`)
+- `load_file_contents()` in `reviewer/github_runtime.py` now returns `tuple[dict[str, str], list[SkippedFile]]`
+- `PRContent` carries `skipped_files` list and exposes `skipped_file_count` property
+- `action.py` logs skipped files with path and reason, and passes `skipped_files_count` to backend ingest
+
+### Test isolation
+- New `tests/conftest.py` with autouse fixture that resets `app.dependency_overrides` between tests
+- `test_api.py` rewritten with per-test fixtures — no module-level global store/auth overrides
+- `test_auth.py` cleanup improved to prevent cross-module bleed
+
+### Run summary metadata — 8 new columns in `runs` table
+All additive with safe defaults (0 or empty string):
+- `provider_invoked` (INTEGER) — whether provider was called
+- `provider_gate_decision` (TEXT) — gate outcome
+- `concerns_count` (INTEGER) — ReviewConcern count
+- `observations_count` (INTEGER) — ReviewObservation count
+- `provider_notes_count` (INTEGER) — raw provider notes
+- `provider_notes_suppressed_count` (INTEGER) — notes filtered by overlap
+- `changed_files_count` (INTEGER) — total changed files discovered
+- `skipped_files_count` (INTEGER) — files that could not be loaded
+
+These are summary counts only — full internal objects (ReviewPlan, ReviewBundle, ReviewTrace, concern/observation text, provider note text, skipped-file details) are intentionally not persisted.
+
+### What did NOT change
+- ScanResult JSON contract — unchanged
+- Scoring model — unchanged (findings-only, deterministic)
+- Trust boundaries — unchanged (provider output remains non-authoritative)
+- Provider implementations — unchanged
+- Validation harness — all scenarios still pass
+- Auth model — unchanged
+
+### Deferred concerns
+- **Full internal object persistence** — storing full ReviewTrace, concerns, observations, provider notes deferred to control-plane phase
+- **Per-file skipped-file metadata in backend** — only total count stored, not per-file path/reason
+- **Database migrations framework** — still using CREATE IF NOT EXISTS; formal migrations deferred
+
+### Test coverage
+- 39 new tests in `tests/test_hardening.py`
+- Covers: SkippedFile model, PRContent with skipped files, run summary metadata persistence and retrieval, backend ingest pass-through, ScanResult contract stability, scoring invariance, provider trust boundaries
+- All 1104 existing tests continue to pass unchanged
+- Total: 1143 tests pass

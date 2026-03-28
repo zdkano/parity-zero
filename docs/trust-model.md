@@ -146,3 +146,15 @@ The backend API persists review results (scan metadata and findings) for later r
 - Retrieval of stored results reflects what was originally produced — no re-scoring or re-classification occurs
 
 The backend stores the `ScanResult` JSON contract faithfully. It does not modify, filter, or enrich results.
+
+### Run Summary Metadata (ADR-036)
+
+In addition to the ScanResult fields, the backend persists **run summary metadata** per run:
+
+- `provider_invoked` — whether the reasoning provider was called
+- `provider_gate_decision` — gate outcome (invoked / skipped / disabled / unavailable)
+- `concerns_count`, `observations_count` — how many non-authoritative items were generated
+- `provider_notes_count`, `provider_notes_suppressed_count` — raw and filtered provider notes
+- `changed_files_count`, `skipped_files_count` — file discovery and loading stats
+
+These fields are **operational metadata for debugging and history**. They do not change the trust semantics of any output. Concern/observation/note text is not stored — only counts. Skipped-file paths and reasons are not stored — only the total count. This keeps the storage shape minimal while giving operators visibility into pipeline behaviour.

@@ -2,7 +2,7 @@
 
 Provides explicit structures for:
 
-- **PR file inputs** — ``PRFile`` and ``PRContent`` (ADR-011).
+- **PR file inputs** — ``PRFile``, ``SkippedFile``, and ``PRContent`` (ADR-011, ADR-036).
 - **Repository security profile** — ``RepoSecurityProfile`` representing
   the baseline security context of a repository (ADR-015).
 - **Baseline scan result** — ``BaselineScanResult`` capturing the output
@@ -50,6 +50,21 @@ class PRFile:
     content: str
 
 
+@dataclass(frozen=True)
+class SkippedFile:
+    """A changed file whose content could not be loaded.
+
+    Preserves path-level awareness that a file changed even when the
+    content is unavailable (deleted, binary, too large, or unreadable).
+    The ``reason`` field explains why content was not loaded.
+
+    See ADR-036 for the decision to preserve skipped-file metadata.
+    """
+
+    path: str
+    reason: str
+
+
 @dataclass
 class PRContent:
     """Collection of changed files in a pull request.
@@ -58,23 +73,37 @@ class PRContent:
     It wraps one or more PRFile instances and provides convenience
     methods for interoperability with the existing ``dict[str, str]``
     interfaces used by checks and reasoning modules.
+
+    Changed files whose content could not be loaded are tracked in
+    ``skipped_files`` — see ``SkippedFile`` and ADR-036.
     """
 
     files: list[PRFile] = field(default_factory=list)
+    skipped_files: list[SkippedFile] = field(default_factory=list)
 
     # ------------------------------------------------------------------
     # Construction helpers
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_dict(cls, file_contents: dict[str, str]) -> PRContent:
+    def from_dict(
+        cls,
+        file_contents: dict[str, str],
+        skipped: list[SkippedFile] | None = None,
+    ) -> PRContent:
         """Create a PRContent from a ``{path: content}`` mapping.
 
         This is the primary migration path from the legacy dict-based
         interface.
+
+        Args:
+            file_contents: ``{path: content}`` mapping for loaded files.
+            skipped: Optional list of ``SkippedFile`` entries for files
+                whose content could not be loaded.
         """
         return cls(
-            files=[PRFile(path=p, content=c) for p, c in file_contents.items()]
+            files=[PRFile(path=p, content=c) for p, c in file_contents.items()],
+            skipped_files=skipped or [],
         )
 
     # ------------------------------------------------------------------
@@ -97,6 +126,11 @@ class PRContent:
     def file_count(self) -> int:
         """Number of files in this PR content."""
         return len(self.files)
+
+    @property
+    def skipped_file_count(self) -> int:
+        """Number of changed files whose content could not be loaded."""
+        return len(self.skipped_files)
 
     @property
     def paths(self) -> list[str]:
