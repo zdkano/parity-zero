@@ -49,6 +49,16 @@ ScanResult ──────────────────── structur
   ▼
 Markdown Summary ────────────── developer-facing PR output
   (findings + concerns + observations + provider notes)
+  │
+  ▼ (optional, if PARITY_ZERO_API_URL configured)
+Backend Ingest ──────────────── POST ScanResult to backend API
+  │  (authenticated, safe fallback on failure)
+  │
+  ▼
+SQLite Store ────────────────── persisted runs + findings
+  │
+  ▼
+Retrieval API ───────────────── GET /runs, GET /runs/{scan_id}
 ```
 
 ## Key Components
@@ -87,7 +97,7 @@ Provider output never creates findings, affects scoring, or influences the pass/
 
 ```
 reviewer/
-  action.py          ─ entry point (GitHub Action orchestration)
+  action.py          ─ entry point (GitHub Action orchestration + backend ingest)
   github_runtime.py  ─ runtime helpers (file discovery, loading, output surfacing)
   engine.py          ─ analysis engine (coordinates all layers)
   models.py          ─ data models (PRContent, PullRequestContext, ReviewPlan, etc.)
@@ -108,6 +118,9 @@ schemas/
   findings.py        ─ Finding, ScanResult (JSON contract)
 
 api/
-  main.py            ─ FastAPI ingestion stub
-  routes/ingest.py   ─ POST /ingest endpoint
+  main.py            ─ FastAPI application entry point
+  auth.py            ─ Bearer token authentication
+  persistence.py     ─ SQLite storage layer
+  routes/ingest.py   ─ POST /ingest endpoint (authenticated, persisted)
+  routes/runs.py     ─ GET /runs, GET /runs/{scan_id} (authenticated)
 ```

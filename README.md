@@ -14,7 +14,7 @@ parity-zero is **not** a replacement for SAST, SCA, or secret scanning. It is a 
 
 ## Status
 
-**Phase 1 — Reviewer wedge.**
+**Phase 1 → Phase 2 bridge — Reviewer wedge + thin backend persistence.**
 
 parity-zero is in active early development. The reviewer pipeline is functional with:
 - baseline repository profiling
@@ -32,8 +32,10 @@ parity-zero is in active early development. The reviewer pipeline is functional 
 - **real PR file content loading** from workspace checkout
 - **GitHub-native output**: job summary + PR comment posting
 - **git diff-based changed file discovery** with API fallback
+- **thin backend persistence** — SQLite-backed ingest API with bearer token auth
+- **optional action-to-backend wiring** — reviewer can send results to backend
 
-The control plane dashboard is intentionally deferred. See [roadmap context](.squad/context/roadmap.md).
+The full control plane dashboard is intentionally deferred. See [roadmap context](.squad/context/roadmap.md).
 
 ## Supported Providers
 
@@ -84,16 +86,41 @@ The action automatically:
 2. Loads file contents from the checked-out workspace
 3. Runs the full reviewer pipeline (deterministic checks + contextual analysis)
 4. Posts results as a **GitHub job summary** (always) and **PR comment** (when permissions allow)
+5. Optionally sends structured results to a backend ingest API (when `api_url` and `api_token` are configured)
 
-See [GitHub Action Setup](docs/github-action-setup.md) for complete workflow examples with each provider mode.
+See [GitHub Action Setup](docs/github-action-setup.md) for complete workflow examples with each provider mode and backend integration.
+
+## Backend (Optional)
+
+parity-zero includes a thin backend API for persisting review results:
+
+- **SQLite-backed** — zero external dependencies, works locally
+- **Authenticated** — bearer token auth via `PARITY_ZERO_AUTH_TOKEN`
+- **Minimal** — ingest + retrieval only, no dashboard or analytics yet
+
+```bash
+# Run the backend locally
+export PARITY_ZERO_AUTH_TOKEN="your-secret-token"
+uvicorn api.main:app --port 8000
+
+# Send a result
+curl -X POST http://localhost:8000/ingest \
+  -H "Authorization: Bearer your-secret-token" \
+  -H "Content-Type: application/json" \
+  -d '{"repo":"acme/webapp","pr_number":1,"commit_sha":"abc1234","ref":"main","findings":[]}'
+```
+
+See [Backend Getting Started](docs/backend-getting-started.md) and [API Reference](docs/api.md).
 
 ## Documentation
 
 | Document | Purpose |
 |---|---|
 | [Getting Started](docs/getting-started.md) | Installation, configuration, running locally |
+| [Backend Getting Started](docs/backend-getting-started.md) | Backend setup, storage, auth, local testing |
+| [API Reference](docs/api.md) | Endpoints, request/response shapes, auth, examples |
 | [Trust Model](docs/trust-model.md) | What outputs mean, what is authoritative, what is not |
-| [GitHub Action Setup](docs/github-action-setup.md) | Workflow YAML examples, secrets, permissions |
+| [GitHub Action Setup](docs/github-action-setup.md) | Workflow YAML examples, secrets, permissions, backend integration |
 | [Validation Harness](docs/validation.md) | Scenario-based testing and quality regression |
 | [Architecture Overview](docs/architecture-overview.md) | High-level pipeline for contributors |
 | [Release & Packaging](docs/release-packaging.md) | Marketplace direction and current packaging state |

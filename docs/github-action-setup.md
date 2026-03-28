@@ -213,6 +213,8 @@ jobs:
 | `ANTHROPIC_API_KEY` | `anthropic` | `${{ secrets.ANTHROPIC_API_KEY }}` (add as secret) |
 | `OPENAI_API_KEY` | `openai` | `${{ secrets.OPENAI_API_KEY }}` (add as secret) |
 | `OPENAI_API_BASE` | None (optional) | `env:` block in workflow |
+| `PARITY_ZERO_API_URL` | Backend ingest (optional) | `${{ secrets.PARITY_ZERO_API_URL }}` (add as secret) |
+| `PARITY_ZERO_API_TOKEN` | Backend ingest (optional) | `${{ secrets.PARITY_ZERO_API_TOKEN }}` (add as secret) |
 
 ## Safe Fallback Behavior
 
@@ -223,6 +225,75 @@ parity-zero is designed to **never fail** due to missing provider configuration:
 - If a provider is configured and available but the API call fails → continues with heuristic-based flow
 
 Provider failure never prevents a review from completing. The reviewer always produces structured JSON output and a markdown summary regardless of provider availability.
+
+## Backend Integration (Optional)
+
+parity-zero can optionally send review results to a backend ingest API for persistence. This is fully opt-in — if not configured, the reviewer runs exactly as before.
+
+### Configuring Backend Integration
+
+Add these secrets to your repository:
+
+1. **`PARITY_ZERO_API_URL`** — the base URL of your backend (e.g. `https://parity-zero.example.com`)
+2. **`PARITY_ZERO_API_TOKEN`** — the bearer token for authentication
+
+**To add secrets:** Repository → Settings → Secrets and variables → Actions → New repository secret
+
+### Workflow with Backend Integration
+
+```yaml
+name: parity-zero Review (with backend)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: Security Review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run parity-zero reviewer
+        uses: zdkano/parity-zero@main
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          api_url: ${{ secrets.PARITY_ZERO_API_URL }}
+          api_token: ${{ secrets.PARITY_ZERO_API_TOKEN }}
+```
+
+You can combine backend integration with any provider mode:
+
+```yaml
+      - name: Run parity-zero reviewer
+        uses: zdkano/parity-zero@main
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          api_url: ${{ secrets.PARITY_ZERO_API_URL }}
+          api_token: ${{ secrets.PARITY_ZERO_API_TOKEN }}
+        env:
+          PARITY_ZERO_API_URL: ${{ secrets.PARITY_ZERO_API_URL }}
+          PARITY_ZERO_API_TOKEN: ${{ secrets.PARITY_ZERO_API_TOKEN }}
+          PARITY_REASONING_PROVIDER: github-models
+```
+
+### Backend Integration Behavior
+
+| Condition | Behavior |
+|---|---|
+| `PARITY_ZERO_API_URL` not set | Ingest silently skipped; reviewer runs normally |
+| `PARITY_ZERO_API_TOKEN` not set | Ingest skipped with log warning; reviewer runs normally |
+| Both set, backend reachable | Results sent to backend after review completes |
+| Both set, backend unreachable | Ingest fails with log warning; **reviewer still succeeds** |
+| Both set, backend returns error | Ingest fails with log warning; **reviewer still succeeds** |
+
+Backend ingest failure **never** causes the GitHub Action to fail. The reviewer run is considered successful regardless of backend availability. Check the workflow logs for ingest status messages.
 
 ## Referencing the Action
 
