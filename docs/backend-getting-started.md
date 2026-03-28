@@ -26,7 +26,7 @@ The backend uses **SQLite** for persistence.
 - File-based — easy to inspect, back up, or reset
 
 **Schema:**
-- `runs` table — scan-level metadata (scan_id, repo, PR number, decision, risk score, timestamps)
+- `runs` table — scan-level metadata (scan_id, repo, PR number, decision, risk score, timestamps) plus run summary metadata (provider status, concern/observation/note counts, changed/skipped file counts — ADR-036)
 - `findings` table — individual findings linked to a run (category, severity, file, description)
 
 **Database location:**
@@ -189,3 +189,10 @@ The schema is recreated automatically on next startup.
 - **Not a full control plane** — there is no dashboard, search, analytics, or reporting UI yet.
 - **Not multi-user** — the auth model is a single shared bearer token, not user accounts or RBAC.
 - **Not a findings authority** — persisting results does not change their trust semantics. Findings, concerns, and observations retain their original meaning. See [Trust Model](trust-model.md).
+
+## What the Backend Stores
+
+- **Per run:** scan_id, repo, PR number, commit SHA, ref, timestamp, decision, risk score, findings count, provider name, provider invocation status, provider gate decision, concerns count, observations count, provider notes count/suppressed count, changed/skipped files count, ingested_at
+- **Per finding:** id, category, severity, confidence, title, description, file, start/end line, recommendation
+
+The backend **does not** store full ReviewPlan, ReviewBundle, ReviewTrace entries, concern/observation text, provider note text, or markdown summaries. Only summary counts are persisted — see ADR-036 and [API Reference](api.md) for details.

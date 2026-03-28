@@ -197,7 +197,15 @@ curl -H "Authorization: Bearer your-token" \
       "decision": "warn",
       "risk_score": 25,
       "findings_count": 1,
-      "provider_name": "",
+      "provider_name": "github-models",
+      "provider_invoked": 1,
+      "provider_gate_decision": "invoked",
+      "concerns_count": 2,
+      "observations_count": 3,
+      "provider_notes_count": 5,
+      "provider_notes_suppressed_count": 1,
+      "changed_files_count": 8,
+      "skipped_files_count": 0,
       "ingested_at": "2026-03-28T12:00:01+00:00"
     }
   ],
@@ -239,7 +247,15 @@ curl -H "Authorization: Bearer your-token" \
   "decision": "warn",
   "risk_score": 25,
   "findings_count": 1,
-  "provider_name": "",
+  "provider_name": "github-models",
+  "provider_invoked": 1,
+  "provider_gate_decision": "invoked",
+  "concerns_count": 2,
+  "observations_count": 3,
+  "provider_notes_count": 5,
+  "provider_notes_suppressed_count": 1,
+  "changed_files_count": 8,
+  "skipped_files_count": 0,
   "ingested_at": "2026-03-28T12:00:01+00:00",
   "findings": [
     {
@@ -277,6 +293,29 @@ curl -H "Authorization: Bearer your-token" \
 | Invalid enum value | 422 | Pydantic validation error with allowed values |
 | Invalid JSON body | 422 | JSON parse error |
 | Run not found | 404 | `{"detail": "Run not found."}` |
+
+## What the Backend Stores Today
+
+Per run (in the `runs` table):
+- **Core ScanResult fields** — scan_id, repo, pr_number, commit_sha, ref, timestamp, decision, risk_score, findings_count
+- **Run summary metadata (ADR-036)** — provider_name, provider_invoked, provider_gate_decision, concerns_count, observations_count, provider_notes_count, provider_notes_suppressed_count, changed_files_count, skipped_files_count
+- **Ingest timestamp** — ingested_at
+
+Per finding (in the `findings` table):
+- id, scan_id, category, severity, confidence, title, description, file, start_line, end_line, recommendation
+
+## What the Backend Intentionally Does NOT Store
+
+- **Full ReviewPlan** — internal planning structure, not persisted
+- **Full ReviewBundle** — internal evidence aggregation, not persisted
+- **Full ReviewTrace entries** — internal trace log entries, not persisted
+- **Full concern/observation text** — only counts are stored, not content
+- **Provider candidate note text** — only counts are stored, not content
+- **Skipped-file details per file** — only the total count is stored, not per-file path/reason
+- **Review memory** — memory models exist but persistence is deferred
+- **Markdown summary** — produced at runtime, not stored
+
+Storing summary counts (not full objects) provides enough for debugging, history, and tuning without over-building persistence. Full internal reviewer object storage is deferred to later control-plane phases.
 
 ## What This API Is
 
