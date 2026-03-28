@@ -126,7 +126,34 @@ Phase 1 status: the reasoning layer accepts a `ReviewPlan` (ADR-021) and
 generates plan-driven contextual notes, review concerns (ADR-022), and
 per-file observations from ReviewBundle items (ADR-024).  When no plan is
 provided, it falls back to ad-hoc overlap checks for backward compatibility.
-LLM integration will be added in a subsequent iteration.
+
+A provider-agnostic reasoning runtime boundary (ADR-025) allows optional
+provider-backed reasoning.  When a `ReasoningProvider` is supplied and
+available, the prompt builder assembles a structured `ReasoningRequest` from
+pipeline context and the provider's output is integrated as candidate notes.
+The default `DisabledProvider` preserves current behaviour — no live
+credentials required.
+
+---
+
+### 6e. Reasoning Runtime Boundary (ADR-025)
+A provider-agnostic interface for reasoning backends.
+
+Components:
+- **ReasoningProvider** — abstract interface (`reason()`, `is_available()`, `name`)
+- **ReasoningRequest** — structured input from pipeline context (plan, bundle,
+  baseline, memory, deterministic findings)
+- **ReasoningResponse** — structured output (candidate notes, candidate findings)
+- **DisabledProvider** — no-op default (current behavior preserved)
+- **MockProvider** — predictable output for testing and local development
+- **Prompt builder** (`build_reasoning_request()`) — canonical input assembly
+
+The runtime boundary is intentionally minimal.  Provider output is *candidate*
+material — trust calibration for provider-generated findings is a separate
+design dimension for later phases.
+
+Phase 1 status: DisabledProvider and MockProvider are implemented.  Live
+provider integration (GitHub Models, external LLMs) is deferred.
 
 ---
 
@@ -299,7 +326,9 @@ flowchart LR
         RSP --> PCB
         PCB --> RP[Review Planner]
         RP --> RBB[Review Bundle Builder]
-        RBB --> CRE[Contextual Security Review Engine]
+        RBB --> PB[Prompt Builder]
+        PB --> RRT[Reasoning Runtime]
+        RRT --> CRE[Contextual Security Review Engine]
         PCB --> DSC[Deterministic Support Checks]
         DSC --> CRE
     end

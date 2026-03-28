@@ -39,6 +39,7 @@ from schemas.findings import Decision, Finding, Severity
 from reviewer.checks import run_deterministic_checks
 from reviewer.models import PRContent, PullRequestContext, ReviewBundle, ReviewConcern, ReviewObservation
 from reviewer.planner import build_review_plan
+from reviewer.providers import DisabledProvider, ReasoningProvider
 from reviewer.reasoning import run_reasoning
 
 # Severity weights used for risk_score derivation.
@@ -81,6 +82,7 @@ class AnalysisResult:
 
 def analyse(
     pr_input: PullRequestContext | PRContent | dict[str, str],
+    provider: ReasoningProvider | None = None,
 ) -> AnalysisResult:
     """Run all analysis strategies against the changed file contents.
 
@@ -92,10 +94,16 @@ def analyse(
        eventually reason over PR delta + baseline profile + review
        memory (currently a structured stub).
 
+    When a ``ReasoningProvider`` is supplied (ADR-025), the reasoning
+    layer will use it for provider-backed analysis.  The default is
+    ``DisabledProvider`` — no live credentials required.
+
     Args:
         pr_input: A ``PullRequestContext`` (preferred), ``PRContent``,
             or a legacy ``{path: content}`` dict.  Non-context inputs
             are automatically wrapped for backward compatibility.
+        provider: An optional ``ReasoningProvider``.  Defaults to
+            ``DisabledProvider`` when not supplied.
 
     Returns:
         An AnalysisResult with combined findings and reasoning notes.
@@ -115,12 +123,19 @@ def analyse(
     review_plan = build_review_plan(ctx)
 
     # -- Deterministic support layer (ADR-013) --
-    findings.extend(run_deterministic_checks(file_contents))
+    det_findings = run_deterministic_checks(file_contents)
+    findings.extend(det_findings)
 
-    # -- Contextual review — primary review path (ADR-014, ADR-019, ADR-021) --
-    # The reasoning layer receives the full PullRequestContext and the
-    # structured review plan so it can produce plan-driven contextual notes.
-    reasoning_result = run_reasoning(ctx, plan=review_plan)
+    # -- Contextual review — primary review path (ADR-014, ADR-019, ADR-021, ADR-025) --
+    # The reasoning layer receives the full PullRequestContext, the
+    # structured review plan, an optional provider, and deterministic
+    # findings as supporting context.
+    reasoning_result = run_reasoning(
+        ctx,
+        plan=review_plan,
+        provider=provider,
+        deterministic_findings=det_findings,
+    )
     findings.extend(reasoning_result.findings)
 
     return AnalysisResult(

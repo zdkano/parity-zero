@@ -8,6 +8,7 @@ security analysis that consumes:
   - review memory and prior findings themes (ADR-016)
   - structured review plan (ADR-021)
   - deterministic support signals (ADR-013, consumed via engine)
+  - provider-backed reasoning via ``ReasoningProvider`` (ADR-025)
   - policy/intent context (later phases)
 
 It produces contextual findings and reviewer notes that form the core of
@@ -23,8 +24,13 @@ Phase 1 implementation: baseline-aware and memory-aware contextual review
 notes, now driven by a structured ``ReviewPlan`` (ADR-021).  The planner
 derives focus areas from ``PullRequestContext`` and the reasoning layer
 translates plan focus into contextual notes.  Per-file review observations
-are derived from the ReviewBundle (ADR-024).  LLM integration will be
-added in a subsequent iteration.
+are derived from the ReviewBundle (ADR-024).
+
+A provider-agnostic reasoning runtime boundary (ADR-025) allows optional
+provider-backed reasoning.  When a ``ReasoningProvider`` is supplied and
+available, its output is integrated as candidate notes.  The default
+``DisabledProvider`` preserves current behaviour — no live credentials
+required.
 """
 
 from __future__ import annotations
@@ -33,6 +39,7 @@ from dataclasses import dataclass, field
 
 from schemas.findings import Finding
 from reviewer.models import PullRequestContext, RepoSecurityProfile, ReviewBundle, ReviewConcern, ReviewMemory, ReviewObservation, ReviewPlan
+from reviewer.providers import DisabledProvider, ReasoningProvider, ReasoningRequest
 
 # Canonical path analysis helpers live in planner.py (ADR-021).
 # Re-exported here for backward compatibility with existing callers/tests.
@@ -46,6 +53,7 @@ from reviewer.planner import (  # noqa: F401
 )
 from reviewer.bundle import build_review_bundle
 from reviewer.observations import generate_observations
+from reviewer.prompt_builder import build_reasoning_request
 
 
 @dataclass
@@ -72,6 +80,10 @@ class ReasoningResult:
             baseline, memory, and review plan.  Carries per-file context
             and review reasons.  Internal only — does not appear in the
             JSON contract.  See ADR-023.
+        reasoning_request: The assembled reasoning request sent to the
+            provider (if any).  Internal only — useful for debugging and
+            testing the prompt assembly layer.  See ADR-025.
+        provider_name: Name of the reasoning provider used (if any).
     """
 
     findings: list[Finding] = field(default_factory=list)
@@ -79,11 +91,15 @@ class ReasoningResult:
     concerns: list[ReviewConcern] = field(default_factory=list)
     observations: list[ReviewObservation] = field(default_factory=list)
     bundle: ReviewBundle | None = None
+    reasoning_request: ReasoningRequest | None = None
+    provider_name: str = ""
 
 
 def run_reasoning(
     ctx: PullRequestContext | dict[str, str],
     plan: ReviewPlan | None = None,
+    provider: ReasoningProvider | None = None,
+    deterministic_findings: list[Finding] | None = None,
 ) -> ReasoningResult:
     """Run contextual security review against changed files with repo context.
 
@@ -97,10 +113,18 @@ def run_reasoning(
     This ensures that review attention is driven by a single, explicit
     planning step.
 
+    When a ``ReasoningProvider`` is supplied and available (ADR-025),
+    the assembled reasoning request is sent to the provider and its
+    candidate notes are integrated into the result.  When the provider
+    is disabled or unavailable, the current heuristic-based flow runs
+    unchanged.
+
     Phase 1 behaviour:
     - produces contextual notes from the review plan or baseline overlap
     - surfaces relevant review memory as historical awareness
-    - does not yet produce LLM-generated findings
+    - assembles a reasoning request when a plan and bundle are available
+    - integrates provider candidate notes when provider is available
+    - does not yet produce provider-generated findings
     - notes are informational and do not affect decision or risk_score
 
     Args:
@@ -108,6 +132,10 @@ def run_reasoning(
             ``{path: content}`` dict.
         plan: An optional ``ReviewPlan`` that structures review focus.
             When provided, notes are derived from the plan.
+        provider: An optional ``ReasoningProvider``.  When supplied and
+            available, its output is integrated as candidate notes.
+        deterministic_findings: Optional deterministic findings to include
+            as context in the reasoning request.
 
     Returns:
         A ReasoningResult with contextual notes and (currently empty)
@@ -136,11 +164,31 @@ def run_reasoning(
     concerns: list[ReviewConcern] = []
     observations: list[ReviewObservation] = []
     bundle: ReviewBundle | None = None
+    reasoning_request: ReasoningRequest | None = None
+    provider_name: str = ""
+
     if plan is not None:
         _add_plan_notes(notes, plan)
         concerns = generate_concerns(plan, ctx)
         bundle = build_review_bundle(ctx, plan)
         observations = generate_observations(bundle)
+
+        # -- Reasoning request assembly (ADR-025) --
+        reasoning_request = build_reasoning_request(
+            ctx=ctx,
+            plan=plan,
+            bundle=bundle,
+            concerns=concerns,
+            observations=observations,
+            deterministic_findings=deterministic_findings,
+        )
+
+        # -- Provider-backed reasoning (ADR-025) --
+        if provider is not None and provider.is_available():
+            response = provider.reason(reasoning_request)
+            provider_name = response.provider_name
+            if response.candidate_notes:
+                notes.extend(response.candidate_notes)
     else:
         # Legacy path: derive notes directly from context overlap
         changed_paths = ctx.pr_content.paths
@@ -152,6 +200,8 @@ def run_reasoning(
     return ReasoningResult(
         findings=[], notes=notes, concerns=concerns,
         observations=observations, bundle=bundle,
+        reasoning_request=reasoning_request,
+        provider_name=provider_name,
     )
 
 
