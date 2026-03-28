@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 
 from schemas.findings import Decision, Finding, Severity
 from reviewer.checks import run_deterministic_checks
-from reviewer.models import PRContent, PullRequestContext, ReviewBundle, ReviewConcern, ReviewObservation
+from reviewer.models import PRContent, PullRequestContext, ReviewBundle, ReviewConcern, ReviewObservation, ReviewTrace
 from reviewer.planner import build_review_plan
 from reviewer.providers import CandidateNote, DisabledProvider, ReasoningProvider
 from reviewer.reasoning import run_reasoning
@@ -74,6 +74,9 @@ class AnalysisResult:
         bundle: Structured review evidence from the review bundle builder.
             Internal only — does not appear in ScanResult or the JSON
             contract.  See ADR-023.
+        trace: Internal reviewer traceability record (ADR-030).
+            Captures key signals about why the reviewer behaved the
+            way it did.  Internal only — not in JSON contract.
     """
 
     findings: list[Finding] = field(default_factory=list)
@@ -82,6 +85,7 @@ class AnalysisResult:
     observations: list[ReviewObservation] = field(default_factory=list)
     provider_notes: list[CandidateNote] = field(default_factory=list)
     bundle: ReviewBundle | None = None
+    trace: ReviewTrace = field(default_factory=ReviewTrace)
 
 
 def analyse(
@@ -149,6 +153,7 @@ def analyse(
         observations=reasoning_result.observations,
         provider_notes=reasoning_result.provider_notes,
         bundle=reasoning_result.bundle,
+        trace=reasoning_result.trace,
     )
 
 

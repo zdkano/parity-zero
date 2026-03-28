@@ -38,7 +38,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from schemas.findings import Finding
-from reviewer.models import PullRequestContext, RepoSecurityProfile, ReviewBundle, ReviewConcern, ReviewMemory, ReviewObservation, ReviewPlan
+from reviewer.models import PullRequestContext, RepoSecurityProfile, ReviewBundle, ReviewConcern, ReviewMemory, ReviewObservation, ReviewPlan, ReviewTrace
 from reviewer.providers import CandidateNote, DisabledProvider, ReasoningProvider, ReasoningRequest
 from reviewer.provider_gate import ProviderGateResult, evaluate_provider_gate
 
@@ -93,6 +93,9 @@ class ReasoningResult:
             (ADR-029).  Records whether the provider was invoked and
             the reasons for the decision.  None when no plan is
             available (legacy path) or provider is disabled.
+        trace: Internal reviewer traceability record (ADR-030).
+            Captures key signals about why the reviewer behaved the
+            way it did.  Internal only — not in JSON contract.
     """
 
     findings: list[Finding] = field(default_factory=list)
@@ -104,6 +107,7 @@ class ReasoningResult:
     reasoning_request: ReasoningRequest | None = None
     provider_name: str = ""
     provider_gate_result: ProviderGateResult | None = None
+    trace: ReviewTrace = field(default_factory=ReviewTrace)
 
 
 def run_reasoning(
@@ -160,15 +164,18 @@ def run_reasoning(
 
     file_contents = ctx.pr_content.to_dict()
     notes: list[str] = []
+    trace = ReviewTrace()
 
     if not file_contents:
         notes.append("No changed files provided for contextual review.")
-        return ReasoningResult(findings=[], notes=notes)
+        trace.entries.append("no changed files — early return")
+        return ReasoningResult(findings=[], notes=notes, trace=trace)
 
     file_count = len(file_contents)
     notes.append(
         f"Contextual review examined {file_count} file(s)."
     )
+    trace.entries.append(f"examining {file_count} file(s)")
 
     # -- Plan-driven contextual notes (ADR-021) --
     # -- Plan-driven contextual concerns (ADR-022) --
@@ -183,10 +190,26 @@ def run_reasoning(
     gate_result: ProviderGateResult | None = None
 
     if plan is not None:
+        trace.active_focus_areas = list(plan.focus_areas)
+        trace.entries.append("plan available — plan-driven path")
+
         _add_plan_notes(notes, plan)
         concerns = generate_concerns(plan, ctx)
+        trace.concern_count = len(concerns)
+
         bundle = build_review_bundle(ctx, plan)
+        trace.bundle_item_count = bundle.item_count
+        trace.bundle_high_focus_count = sum(
+            1 for i in bundle.items
+            if i.review_reason not in ("", "changed_file")
+        )
+
         observations = generate_observations(bundle)
+        trace.observation_count = len(observations)
+        trace.entries.append(
+            f"generated {trace.concern_count} concern(s), "
+            f"{trace.observation_count} observation(s)"
+        )
 
         # -- Reasoning request assembly (ADR-025) --
         reasoning_request = build_reasoning_request(
@@ -202,9 +225,19 @@ def run_reasoning(
         # -- Provider-backed reasoning (ADR-025, ADR-027) --
         if provider is not None and provider.is_available():
             gate_result = evaluate_provider_gate(plan, bundle)
+            trace.provider_gate_reasons = list(gate_result.reasons)
             if gate_result.should_invoke:
+                trace.provider_attempted = True
+                trace.provider_gate_decision = "invoked"
+                trace.entries.append("provider gate: invoked")
+
                 response = provider.reason(reasoning_request)
                 provider_name = response.provider_name
+                trace.provider_name = provider_name
+
+                raw_count = len(response.structured_notes)
+                trace.provider_notes_returned = raw_count
+
                 # Suppress notes that overlap with existing context (ADR-027).
                 provider_notes = _suppress_overlapping_notes(
                     response.structured_notes,
@@ -212,11 +245,38 @@ def run_reasoning(
                     observations=observations,
                     deterministic_findings=deterministic_findings,
                 )
+                trace.provider_notes_kept = len(provider_notes)
+                trace.provider_notes_suppressed = raw_count - len(provider_notes)
+
                 # -- Provider-backed observation refinement (ADR-028) --
+                obs_before = len(observations)
                 observations = refine_observations(observations, provider_notes)
+                trace.observation_refinement_applied = True
+                trace.observation_count = len(observations)
+                trace.entries.append(
+                    f"provider returned {raw_count} note(s), "
+                    f"kept {trace.provider_notes_kept}, "
+                    f"suppressed {trace.provider_notes_suppressed}"
+                )
+                if len(observations) != obs_before:
+                    trace.entries.append(
+                        f"observation refinement: {obs_before} → {len(observations)}"
+                    )
+
                 if response.candidate_notes:
                     notes.extend(response.candidate_notes)
+            else:
+                trace.provider_attempted = False
+                trace.provider_gate_decision = "skipped"
+                trace.entries.append("provider gate: skipped")
+        elif provider is not None:
+            trace.provider_gate_decision = "unavailable"
+            trace.entries.append("provider unavailable")
+        else:
+            trace.provider_gate_decision = "disabled"
+            trace.entries.append("provider disabled (none supplied)")
     else:
+        trace.entries.append("no plan — legacy path")
         # Legacy path: derive notes directly from context overlap
         changed_paths = ctx.pr_content.paths
         if ctx.has_baseline and ctx.baseline_profile is not None:
@@ -231,6 +291,7 @@ def run_reasoning(
         reasoning_request=reasoning_request,
         provider_name=provider_name,
         provider_gate_result=gate_result,
+        trace=trace,
     )
 
 

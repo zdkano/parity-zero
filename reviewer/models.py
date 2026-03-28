@@ -15,6 +15,8 @@ Provides explicit structures for:
   structured review evidence aggregation (ADR-023).
 - **Review observation** — ``ReviewObservation`` for per-file security
   review observations derived from ReviewBundle items (ADR-024).
+- **Review trace** — ``ReviewTrace`` for internal reviewer traceability
+  capturing why the reviewer behaved the way it did (ADR-030).
 
 Phase 1 keeps models deliberately minimal — see relevant ADRs.
 """
@@ -471,3 +473,68 @@ class PullRequestContext:
     def has_memory(self) -> bool:
         """Whether review memory is attached."""
         return self.memory is not None
+
+
+# ======================================================================
+# Review trace (ADR-030)
+# ======================================================================
+
+
+@dataclass
+class ReviewTrace:
+    """Internal traceability record for a single reviewer run.
+
+    Captures key signals about why the reviewer behaved the way it did
+    during a review.  Intended for debugging, tuning, trust calibration,
+    and future control-plane design.
+
+    The trace is **internal only**.  It does not appear in:
+    - ``ScanResult`` JSON contract
+    - ingestion payloads
+    - risk scoring or decision derivation
+    - markdown output
+
+    See ADR-030 for the decision to introduce this concept.
+    """
+
+    provider_attempted: bool = False
+    """Whether provider reasoning invocation was attempted."""
+
+    provider_gate_decision: str = ""
+    """Gate outcome: 'invoked', 'skipped', 'disabled', 'unavailable', or ''."""
+
+    provider_gate_reasons: list[str] = field(default_factory=list)
+    """Explainable reasons from provider invocation gating."""
+
+    provider_name: str = ""
+    """Name of the reasoning provider used (if any)."""
+
+    active_focus_areas: list[str] = field(default_factory=list)
+    """Focus areas active from the ReviewPlan."""
+
+    bundle_item_count: int = 0
+    """Number of items in the ReviewBundle."""
+
+    bundle_high_focus_count: int = 0
+    """Number of bundle items with elevated review focus."""
+
+    concern_count: int = 0
+    """Number of ReviewConcern instances generated."""
+
+    observation_count: int = 0
+    """Number of ReviewObservation instances generated."""
+
+    provider_notes_returned: int = 0
+    """Raw candidate notes returned by the provider."""
+
+    provider_notes_suppressed: int = 0
+    """Provider notes suppressed by overlap filtering."""
+
+    provider_notes_kept: int = 0
+    """Provider notes retained after overlap suppression."""
+
+    observation_refinement_applied: bool = False
+    """Whether provider-backed observation refinement ran."""
+
+    entries: list[str] = field(default_factory=list)
+    """Ordered descriptive entries documenting reviewer decisions."""
