@@ -1673,3 +1673,80 @@ Prior to this change, the action discovered changed file paths but passed empty 
 - Covers: git diff discovery, file loading, job summary, PR comment, PullRequestContext assembly, ScanResult contract stability, output format, validation harness compatibility
 - All mocked — no live GitHub API credentials required
 - Total: 1053 tests pass (1003 existing + 50 new)
+
+---
+
+## ADR-035: Thin backend persistence with SQLite and bearer token auth
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+Implement a thin backend persistence layer using SQLite for storage and bearer token authentication for access control. Wire the GitHub Action to optionally send results to the backend after each review run.
+
+### Context
+The reviewer pipeline is mature (deterministic checks, contextual reasoning, provider support, GitHub-native output). The next step toward a control plane foundation is persisting review results so they can be retrieved and inspected. This must be minimal, practical, and not over-built.
+
+### Storage choice: SQLite
+- Zero external dependencies — uses Python's built-in `sqlite3` module
+- No database server to install, configure, or maintain
+- Easy local setup — critical for Phase 2 bridge work
+- Phase-appropriate simplicity
+- ADR-006 identified Postgres as the eventual store; SQLite bridges the gap
+- Migration to Postgres expected later as query/reporting/multi-user needs grow
+
+### Auth model: Bearer token
+- Single shared token configured via `PARITY_ZERO_AUTH_TOKEN` env var
+- FastAPI dependency injection for clean enforcement
+- Constant-time comparison via `secrets.compare_digest`
+- If server token not configured, all authenticated requests rejected — operator must explicitly set it
+- No user accounts, OAuth, RBAC, or SSO at this phase
+
+### Endpoints
+- `POST /ingest` — accept, validate, authenticate, and persist ScanResult payloads
+- `GET /runs` — list recent runs (paginated, optional repo filter)
+- `GET /runs/{scan_id}` — get single run with findings
+- `GET /health` — liveness check (no auth)
+
+### Action-to-backend wiring
+- Opt-in via `PARITY_ZERO_API_URL` and `PARITY_ZERO_API_TOKEN` env vars
+- If either is absent, ingest is silently skipped
+- Backend ingest failure never crashes the action
+- Internal logging makes ingest attempt and outcome visible
+- action.yml updated: `api_endpoint` input renamed to `api_url`, new `api_token` input
+
+### Ingest failure policy
+Backend ingest failure is logged as a warning but does not affect the reviewer exit code. The reviewer run is considered successful regardless of backend availability. This preserves the reviewer-first principle — the action is useful even if the backend is down.
+
+### Persistence schema
+- `runs` table: scan_id, repo, pr_number, commit_sha, ref, timestamp, decision, risk_score, findings_count, provider_name, ingested_at
+- `findings` table: id, scan_id, category, severity, confidence, title, description, file, start_line, end_line, recommendation
+- Indexes on scan_id, repo, ingested_at
+
+### What did NOT change
+- ScanResult JSON contract — unchanged
+- Scoring model — unchanged (findings-only, deterministic)
+- Trust boundaries — unchanged (provider output remains non-authoritative)
+- Provider implementations — unchanged
+- Validation harness — all scenarios still pass
+- Reviewer pipeline internals — unchanged
+
+### Deferred concerns
+- **Full control plane / dashboard** — intentionally deferred to later phases
+- **Multi-user auth / RBAC / SSO / OAuth** — deferred; single shared token is phase-appropriate
+- **Postgres migration** — expected when query/reporting needs grow beyond SQLite capabilities
+- **Richer query / search / analytics / reporting API** — deferred to dashboard phase
+- **Trace persistence / export** — ReviewTrace is internal only; persistence deferred
+- **Skipped-file metadata preservation** — github_runtime.py logs skipped files but does not preserve metadata in PRContent; deferred as a separate targeted improvement
+- **Review memory persistence** — memory models exist but write-through persistence deferred
+- **Database migrations framework** — schema is simple enough for CREATE IF NOT EXISTS; formal migrations deferred
+
+### Test coverage
+- 51 new tests across 4 test files:
+  - `tests/test_api.py` — ingest, validation, round-trip, persistence, retrieval (30 tests, rewritten)
+  - `tests/test_persistence.py` — ScanStore CRUD, schema, edge cases (18 tests)
+  - `tests/test_auth.py` — auth enforcement, token validation, unconfigured server (10 tests)
+  - `tests/test_backend_ingest.py` — action wiring, skip/attempt/error handling (10 tests)
+- All tests use in-memory SQLite — no database file created during testing
+- All 1053 existing tests continue to pass unchanged
+- Total: 1104 tests pass

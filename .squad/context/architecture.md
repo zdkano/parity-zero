@@ -326,22 +326,30 @@ Receives structured scan output from reviewer runs.
 
 Responsibilities:
 - validate payloads
-- store scans and findings
-- support retrieval and aggregation later
+- authenticate requests (bearer token)
+- store scans and findings (SQLite)
+- support retrieval for debugging and validation
 - establish a stable contract between reviewer and control plane
-- feed into persistent memory store
+- feed into persistent memory store (later)
+
+Phase 2 status: functional with authentication and SQLite persistence.
+Endpoints: POST /ingest, GET /runs, GET /runs/{scan_id}.
+See ADR-035.
 
 ---
 
 ### 9. Findings Store
 Stores scan metadata and structured findings.
 
-The initial choice is Postgres because it supports:
-- relational reporting
-- filtering
-- trend analysis
-- repo and team views
-- governance extensions later
+The current implementation uses SQLite for simplicity:
+- zero operational burden for local/dev use
+- built-in to Python — no external database needed
+- file-based — easy to inspect, back up, or reset
+- suitable for Phase 2 bridge work
+
+Migration to Postgres is expected in later phases as query, reporting,
+and multi-user needs grow.  See ADR-006 for original Postgres intent
+and ADR-035 for the SQLite bridge decision.
 
 ---
 

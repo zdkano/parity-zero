@@ -134,3 +134,15 @@ The scoring function is deterministic. It does not incorporate provider output, 
 - Full persistence (findings store, memory persistence)
 - Control plane dashboard
 - Policy-based review configuration
+
+## Backend Persistence and Trust
+
+The backend API persists review results (scan metadata and findings) for later retrieval. This persistence **does not change the trust semantics** of any output:
+
+- Persisted findings remain findings — they have the same authority they had when produced
+- Persisted concerns and observations are **not** stored (they are markdown-only)
+- Storing a result does not make it more authoritative
+- The backend is a **storage layer**, not an analysis or policy layer
+- Retrieval of stored results reflects what was originally produced — no re-scoring or re-classification occurs
+
+The backend stores the `ScanResult` JSON contract faithfully. It does not modify, filter, or enrich results.

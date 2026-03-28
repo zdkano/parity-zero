@@ -6,8 +6,12 @@ inputs:
   github_token:
     description: "GitHub token for API access (PR comments, changed files)"
     required: true
-  api_endpoint:
-    description: "Optional central ingestion API URL"
+  api_url:
+    description: "Optional backend ingest API URL (e.g. https://parity-zero.example.com)"
+    required: false
+    default: ""
+  api_token:
+    description: "Optional bearer token for backend ingest API authentication"
     required: false
     default: ""
 
@@ -34,6 +38,7 @@ runs:
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
-        PARITY_ZERO_API: ${{ inputs.api_endpoint }}
+        PARITY_ZERO_API_URL: ${{ inputs.api_url }}
+        PARITY_ZERO_API_TOKEN: ${{ inputs.api_token }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
       run: python -m reviewer.action

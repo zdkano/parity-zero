@@ -1,26 +1,29 @@
 """FastAPI application entry point for parity-zero ingestion API.
 
-Phase 1 scope (see roadmap.md):
-  - Health check endpoint
-  - Scan result ingestion endpoint (POST /ingest)
-  - Payload validation via Pydantic (schemas.findings)
-  - No persistence — storage will be added in Phase 2
+Provides:
+  - Health check endpoint (unauthenticated)
+  - Scan result ingestion endpoint (POST /ingest, authenticated)
+  - Run retrieval endpoints (GET /runs, GET /runs/{scan_id}, authenticated)
+  - SQLite persistence via ScanStore
+  - Bearer token authentication via PARITY_ZERO_AUTH_TOKEN
 
-See ADR-005 for the FastAPI choice rationale and ADR-006 for the
-future Postgres store.
+See ADR-005 for the FastAPI choice rationale and ADR-035 for the
+persistence and auth decisions.
 """
 
 from fastapi import FastAPI
 
 from api.routes.ingest import router as ingest_router
+from api.routes.runs import router as runs_router
 
 app = FastAPI(
     title="parity-zero ingestion API",
-    description="Central ingestion endpoint for parity-zero scan results.",
-    version="0.1.0",
+    description="Central ingestion and retrieval endpoint for parity-zero scan results.",
+    version="0.2.0",
 )
 
 app.include_router(ingest_router)
+app.include_router(runs_router)
 
 
 @app.get("/health")
