@@ -52,7 +52,7 @@ from reviewer.planner import (  # noqa: F401
     generate_concerns,
 )
 from reviewer.bundle import build_review_bundle
-from reviewer.observations import generate_observations
+from reviewer.observations import generate_observations, refine_observations
 from reviewer.prompt_builder import build_reasoning_request
 
 
@@ -200,6 +200,8 @@ def run_reasoning(
                 observations=observations,
                 deterministic_findings=deterministic_findings,
             )
+            # -- Provider-backed observation refinement (ADR-028) --
+            observations = refine_observations(observations, provider_notes)
             if response.candidate_notes:
                 notes.extend(response.candidate_notes)
     else:
