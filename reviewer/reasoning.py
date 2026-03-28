@@ -31,7 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from schemas.findings import Finding
-from reviewer.models import PullRequestContext, RepoSecurityProfile, ReviewConcern, ReviewMemory, ReviewPlan
+from reviewer.models import PullRequestContext, RepoSecurityProfile, ReviewBundle, ReviewConcern, ReviewMemory, ReviewPlan
 
 # Canonical path analysis helpers live in planner.py (ADR-021).
 # Re-exported here for backward compatibility with existing callers/tests.
@@ -43,6 +43,7 @@ from reviewer.planner import (  # noqa: F401
     build_review_plan,
     generate_concerns,
 )
+from reviewer.bundle import build_review_bundle
 
 
 @dataclass
@@ -61,11 +62,16 @@ class ReasoningResult:
         concerns: Plan-informed review concerns — areas that may deserve
             closer security attention based on context.  Distinct from
             findings; do not affect scoring.  See ADR-022.
+        bundle: Structured review evidence gathered from PR delta,
+            baseline, memory, and review plan.  Carries per-file context
+            and review reasons.  Internal only — does not appear in the
+            JSON contract.  See ADR-023.
     """
 
     findings: list[Finding] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     concerns: list[ReviewConcern] = field(default_factory=list)
+    bundle: ReviewBundle | None = None
 
 
 def run_reasoning(
@@ -118,10 +124,13 @@ def run_reasoning(
 
     # -- Plan-driven contextual notes (ADR-021) --
     # -- Plan-driven contextual concerns (ADR-022) --
+    # -- Review bundle assembly (ADR-023) --
     concerns: list[ReviewConcern] = []
+    bundle: ReviewBundle | None = None
     if plan is not None:
         _add_plan_notes(notes, plan)
         concerns = generate_concerns(plan, ctx)
+        bundle = build_review_bundle(ctx, plan)
     else:
         # Legacy path: derive notes directly from context overlap
         changed_paths = ctx.pr_content.paths
@@ -130,7 +139,7 @@ def run_reasoning(
         if ctx.has_memory and ctx.memory is not None:
             _add_memory_notes(notes, changed_paths, ctx.memory)
 
-    return ReasoningResult(findings=[], notes=notes, concerns=concerns)
+    return ReasoningResult(findings=[], notes=notes, concerns=concerns, bundle=bundle)
 
 
 # ======================================================================
