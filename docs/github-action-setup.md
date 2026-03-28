@@ -39,6 +39,24 @@ File contents are read from the workspace checkout (`GITHUB_WORKSPACE`):
 
 This means the reviewer operates on the actual file contents from the PR head commit, as checked out by `actions/checkout`.
 
+### Skipped-File Tracking (ADR-036)
+
+When a changed file cannot be loaded, the reviewer records it as a `SkippedFile` with a `path` and `reason`. Possible skip reasons:
+
+| Reason | When |
+|---|---|
+| `not_found` | File listed in diff but missing from workspace (e.g. deleted) |
+| `binary` | File is not valid UTF-8 |
+| `too_large` | File exceeds 1 MB size limit |
+| `unreadable` | OS-level read error |
+
+Skipped files are:
+- **Logged** in the workflow output with path and reason
+- **Counted** in the `skipped_files_count` field sent to the backend (when configured)
+- **Not reviewed** — no findings, concerns, or observations are produced for skipped files
+
+This ensures the reviewer is transparent about what it could and could not review in each run.
+
 ## How Results Are Surfaced
 
 ### GitHub Job Summary (baseline — always available)
