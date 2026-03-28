@@ -60,3 +60,36 @@ uvicorn api.main:app --reload
 ## Key Decisions
 
 Architecture decisions are recorded in `.squad/decisions.md`.
+
+## Reasoning Provider Configuration
+
+parity-zero supports optional AI-powered reasoning via the provider system (ADR-025, ADR-026).  By default, reasoning is **disabled** — the reviewer runs with heuristic-based contextual notes only.
+
+### Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `PARITY_REASONING_PROVIDER` | `disabled` | Provider selection: `disabled` or `github-models` |
+| `PARITY_REASONING_MODEL` | `openai/gpt-4o-mini` | Model identifier (used when provider is `github-models`) |
+| `GITHUB_TOKEN` | *(none)* | GitHub token for authentication (required for `github-models`) |
+
+### Enabling GitHub Models
+
+To enable AI-powered reasoning in a GitHub Actions workflow:
+
+```yaml
+env:
+  PARITY_REASONING_PROVIDER: github-models
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # PARITY_REASONING_MODEL: openai/gpt-4o  # optional: override default model
+```
+
+When enabled, the provider generates **candidate notes** that appear in the PR summary as contextual observations.  Provider output is non-authoritative — it does not create findings, affect scoring, or influence the pass/warn decision.
+
+### Behavior When Disabled
+
+When the provider is disabled (default), the reviewer produces the same output as before: heuristic-based contextual notes, deterministic findings, and structured scoring.  No API calls are made.
+
+### Error Handling
+
+If the provider is enabled but fails (network error, timeout, invalid response), the reviewer continues with its existing heuristic-based flow.  Provider failure never prevents a review from completing.
