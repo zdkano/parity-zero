@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 
 from schemas.findings import Decision, Finding, Severity
 from reviewer.checks import run_deterministic_checks
-from reviewer.models import PRContent, PullRequestContext
+from reviewer.models import PRContent, PullRequestContext, ReviewConcern
 from reviewer.planner import build_review_plan
 from reviewer.reasoning import run_reasoning
 
@@ -60,10 +60,14 @@ class AnalysisResult:
         findings: Deduplicated list of findings from all strategies.
         reasoning_notes: Contextual notes from the reasoning layer.
             Informational only — they do not affect decision or risk_score.
+        concerns: Plan-informed review concerns — areas that may deserve
+            closer security attention.  Distinct from findings; do not
+            affect scoring.  See ADR-022.
     """
 
     findings: list[Finding] = field(default_factory=list)
     reasoning_notes: list[str] = field(default_factory=list)
+    concerns: list[ReviewConcern] = field(default_factory=list)
 
 
 def analyse(
@@ -113,6 +117,7 @@ def analyse(
     return AnalysisResult(
         findings=_deduplicate(findings),
         reasoning_notes=reasoning_result.notes,
+        concerns=reasoning_result.concerns,
     )
 
 

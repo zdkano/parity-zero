@@ -116,12 +116,14 @@ It produces:
 - contextual review notes informed by the structured review plan
 - structured observations about sensitive paths, auth areas, and framework context
 - historical awareness from review memory
+- **plan-informed review concerns** — contextual observations about areas
+  deserving closer attention, distinct from proven findings (ADR-022)
 - confidence-weighted findings (when LLM integration is added)
 
 Phase 1 status: the reasoning layer accepts a `ReviewPlan` (ADR-021) and
-generates plan-driven contextual notes.  When no plan is provided, it falls
-back to ad-hoc overlap checks for backward compatibility.  LLM integration
-will be added in a subsequent iteration.
+generates plan-driven contextual notes and review concerns (ADR-022).  When
+no plan is provided, it falls back to ad-hoc overlap checks for backward
+compatibility.  LLM integration will be added in a subsequent iteration.
 
 ---
 
@@ -137,10 +139,14 @@ Responsibilities:
 - generate reviewer guidance for downstream reasoning
 
 The planner bridges raw context and contextual reasoning.  It makes
-review attention explicit, testable, and extensible.
+review attention explicit, testable, and extensible.  It also generates
+**review concerns** (ADR-022) — lightweight contextual observations about
+areas that may deserve closer security attention, derived from plan
+signals, baseline context, and review memory.
 
-Phase 1 status: heuristic-based plan derivation.  Later phases may
-incorporate provider-backed reasoning into plan construction.
+Phase 1 status: heuristic-based plan derivation and concern generation.
+Later phases may incorporate provider-backed reasoning into plan
+construction and concern enrichment.
 
 ---
 

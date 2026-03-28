@@ -542,3 +542,58 @@ The planner derives structured review focus from `PullRequestContext` (PR delta 
 - Deeper memory relevance matching (content-level, not just category-level)
 - Persistent memory storage and retrieval (Phase 2+)
 - Plan-driven finding generation (requires provider reasoning)
+
+---
+
+## ADR-022: Introduce ReviewConcern as plan-informed contextual concern
+
+**Status:** Accepted  
+**Date:** 2026-03-28
+
+### Decision
+A lightweight `ReviewConcern` model and a `generate_concerns()` function now produce **plan-informed contextual concerns** — areas that may deserve closer security attention based on ReviewPlan signals, baseline context, and review memory.
+
+Concerns are **distinct from findings**.  They represent contextual observations, not proven issues.
+
+### Rationale
+- The reviewer should behave more like a security engineer: surfacing what deserves scrutiny, highlighting plausible concern areas, preserving uncertainty honestly
+- ReviewPlan (ADR-021) captures structured review focus but did not yet produce actionable concern-level output
+- Concerns bridge the gap between plan-level attention signals and developer-visible review output
+- They prepare the way for future provider-backed deeper reasoning without requiring LLM integration now
+- Phase 1 heuristic-based concern generation provides value within current constraints
+
+### What is implemented
+- `ReviewConcern` dataclass in `reviewer/models.py` with fields: category, title, summary, confidence, basis, related_paths
+- `generate_concerns(plan, ctx)` in `reviewer/planner.py` deriving concerns from combinations of plan signals
+- Concern generation rules:
+  - Sensitive paths + auth paths touched → auth-sensitive concern (medium confidence)
+  - Baseline auth patterns + auth paths changed → auth consistency concern (medium confidence)
+  - Auth paths only (no sensitive overlap) → standalone auth concern (low confidence)
+  - Sensitive paths only (no auth overlap) → configuration concern (low confidence)
+  - Memory categories matching PR areas → recurring theme concern (low confidence)
+  - Framework context + sensitive paths → framework convention concern (low confidence)
+- `ReasoningResult` and `AnalysisResult` carry concerns alongside findings and notes
+- `format_markdown()` renders concerns in a clearly separated "Review Concerns" section with an explicit disclaimer
+- `mock_run()` returns concerns in its output dict
+- 37 new tests covering generation, relevance, noise control, markdown output, no-overclaiming, and JSON contract stability
+
+### Key design choices
+- **Concerns are internal and markdown-only.** The ScanResult JSON contract is unchanged — concerns do not appear in the JSON payload. This avoids premature contract expansion.
+- **Concerns preserve uncertainty honestly.** Confidence is capped at medium; vulnerability language is avoided; the markdown section includes an explicit "not proven findings" disclaimer.
+- **Concerns do not affect scoring.** Risk score and decision remain derived from findings only (ADR-012, ADR-017).
+- **No noise for weak context.** If the plan carries no meaningful signals (no sensitive paths, no auth areas, no relevant memory), no concerns are generated.
+- **Backward compatible.** `format_markdown()` accepts optional concerns parameter; existing callers continue to work without changes.
+
+### Consequences
+- Review output now clearly distinguishes: deterministic findings, contextual review concerns, and contextual notes
+- Developers see context-aware observations that help them understand why specific areas deserve attention
+- The concern model is a natural integration point for future provider-backed reasoning
+- The JSON contract is unchanged
+- Risk scoring is unchanged
+
+### Deferred concerns
+- Provider-backed concern generation (LLM reasoning about what deserves attention)
+- Concern-to-finding promotion (upgrading a concern to a finding when evidence supports it)
+- Concern influence on scoring (if concerns should affect risk score, this needs explicit design)
+- Concern aggregation across PRs (control plane feature, Phase 2+)
+- Adding concerns to the JSON contract (if downstream consumers need machine-readable concerns)

@@ -229,6 +229,48 @@ class ReviewPlan:
 
 
 # ======================================================================
+# Review concern (ADR-022)
+# ======================================================================
+
+
+@dataclass
+class ReviewConcern:
+    """A contextual security concern derived from the review plan.
+
+    Review concerns represent areas that **may deserve closer attention**
+    based on PR delta, baseline context, and review memory.  They are
+    explicitly **not** proven findings — they preserve uncertainty honestly
+    and surface plausible security concern areas.
+
+    Concerns are:
+    - distinct from ``Finding`` — they do not claim a vulnerability
+    - surfaced in markdown output only (not in the JSON contract)
+    - not used in risk scoring unless explicitly designed to do so
+    - lightweight, testable, and phase-1-appropriate
+
+    See ADR-022 for the decision to introduce this concept.
+    """
+
+    category: str = ""
+    """Finding taxonomy category this concern relates to."""
+
+    title: str = ""
+    """Concise concern title."""
+
+    summary: str = ""
+    """Context-aware description of why this area deserves attention."""
+
+    confidence: str = "low"
+    """How confident the reviewer is this concern is relevant (high/medium/low)."""
+
+    basis: str = ""
+    """Source of the concern (e.g. 'sensitive_path_overlap', 'memory_match')."""
+
+    related_paths: list[str] = field(default_factory=list)
+    """File paths related to this concern."""
+
+
+# ======================================================================
 # Pull request context (ADR-018)
 # ======================================================================
 
