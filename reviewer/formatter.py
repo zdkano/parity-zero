@@ -14,7 +14,20 @@ ScanResult remains the authoritative system contract.
 
 from __future__ import annotations
 
-from schemas.findings import ScanResult, Severity
+from schemas.findings import Decision, ScanResult, Severity
+
+_DECISION_BADGES: dict[Decision, str] = {
+    Decision.PASS: "✅ Pass",
+    Decision.WARN: "⚠️ Warn",
+    Decision.BLOCK: "🚫 Block",
+}
+
+
+def _risk_bar(score: int) -> str:
+    """Return a compact text bar representing the risk score (0–100)."""
+    filled = round(score / 10)
+    empty = 10 - filled
+    return f"`[{'█' * filled}{'░' * empty}]` **{score}/100**"
 
 
 def format_markdown(result: ScanResult) -> str:
@@ -28,7 +41,13 @@ def format_markdown(result: ScanResult) -> str:
     """
     lines: list[str] = []
 
+    # -- Header --
     lines.append("## 🔒 parity-zero Security Review")
+    lines.append("")
+
+    # -- Decision & risk score --
+    badge = _DECISION_BADGES.get(result.decision, result.decision.value)
+    lines.append(f"**Decision:** {badge} · **Risk:** {_risk_bar(result.risk_score)}")
     lines.append("")
 
     counts = result.summary_counts
@@ -37,9 +56,7 @@ def format_markdown(result: ScanResult) -> str:
     if total == 0:
         lines.append("No security findings identified in this change.")
         lines.append("")
-        lines.append("---")
-        lines.append(f"*Scan: `{result.scan_id[:12]}` · Commit: `{result.commit_sha[:7]}`*")
-        lines.append("")
+        _append_footer(lines, result)
         return "\n".join(lines)
 
     lines.append(
@@ -48,7 +65,7 @@ def format_markdown(result: ScanResult) -> str:
     )
     lines.append("")
 
-    # Group by severity for readability.
+    # -- Findings grouped by severity --
     for severity in [Severity.HIGH, Severity.MEDIUM, Severity.LOW]:
         severity_findings = [f for f in result.findings if f.severity == severity]
         if not severity_findings:
@@ -71,8 +88,30 @@ def format_markdown(result: ScanResult) -> str:
                 lines.append(f"  > 💡 {finding.recommendation}")
             lines.append("")
 
-    lines.append("---")
-    lines.append(f"*Scan: `{result.scan_id[:12]}` · Commit: `{result.commit_sha[:7]}`*")
-    lines.append("")
+    # -- Actionable recommendations --
+    recommendations = [
+        (f.title, f.recommendation)
+        for f in result.findings
+        if f.recommendation
+    ]
+    if recommendations:
+        lines.append("### Recommendations")
+        lines.append("")
+        for title, rec in recommendations:
+            lines.append(f"- **{title}:** {rec}")
+        lines.append("")
 
+    _append_footer(lines, result)
     return "\n".join(lines)
+
+
+def _append_footer(lines: list[str], result: ScanResult) -> None:
+    """Append a compact metadata footer."""
+    lines.append("---")
+    lines.append(
+        f"*Scan: `{result.scan_id[:12]}` · "
+        f"Commit: `{result.commit_sha[:7]}` · "
+        f"Decision: {result.decision.value} · "
+        f"Risk: {result.risk_score}*"
+    )
+    lines.append("")

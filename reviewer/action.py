@@ -195,5 +195,86 @@ def run() -> None:
     # TODO: Optionally send result to ingestion API.
 
 
+def mock_run() -> dict:
+    """Execute a mock reviewer workflow with synthetic findings.
+
+    This is used for testing and demonstration of the reviewer output
+    path without requiring real GitHub context or LLM reasoning.
+
+    Returns a dict with ``result`` (ScanResult), ``markdown`` (str),
+    and ``json`` (str) keys.
+    """
+    from schemas.findings import (
+        Category,
+        Confidence,
+        Decision,
+        Finding,
+        Severity,
+    )
+
+    mock_findings = [
+        Finding(
+            category=Category.INPUT_VALIDATION,
+            severity=Severity.HIGH,
+            confidence=Confidence.HIGH,
+            title="SQL injection via unsanitised input",
+            description="User-supplied input flows into a raw SQL query without parameterisation.",
+            file="src/db/queries.py",
+            start_line=47,
+            end_line=52,
+            recommendation="Use parameterised queries or an ORM to avoid SQL injection.",
+        ),
+        Finding(
+            category=Category.SECRETS,
+            severity=Severity.HIGH,
+            confidence=Confidence.MEDIUM,
+            title="Hardcoded API key",
+            description="An API key is hardcoded in the source file.",
+            file="src/config.py",
+            start_line=12,
+            recommendation="Move secrets to environment variables or a secrets manager.",
+        ),
+        Finding(
+            category=Category.AUTHENTICATION,
+            severity=Severity.MEDIUM,
+            confidence=Confidence.MEDIUM,
+            title="Missing auth middleware on admin route",
+            description="The /admin endpoint does not enforce authentication.",
+            file="src/routes/admin.py",
+            start_line=8,
+            end_line=15,
+            recommendation="Add authentication middleware before the route handler.",
+        ),
+        Finding(
+            category=Category.INSECURE_CONFIGURATION,
+            severity=Severity.LOW,
+            confidence=Confidence.LOW,
+            title="Debug mode enabled",
+            description="Debug mode is enabled in the production configuration.",
+            file="src/settings.py",
+            start_line=3,
+        ),
+    ]
+
+    result = ScanResult(
+        repo="acme/webapp",
+        pr_number=42,
+        commit_sha="abc1234def5",
+        ref="feature/new-endpoint",
+        decision=Decision.WARN,
+        risk_score=62,
+        findings=mock_findings,
+    )
+
+    markdown = format_markdown(result)
+    json_output = result.model_dump_json(indent=2)
+
+    return {
+        "result": result,
+        "markdown": markdown,
+        "json": json_output,
+    }
+
+
 if __name__ == "__main__":
     run()

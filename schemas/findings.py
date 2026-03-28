@@ -112,6 +112,12 @@ class ScanResult(ScanMeta):
         default=Decision.PASS,
         description="Reviewer's overall assessment of the pull request.",
     )
+    risk_score: int = Field(
+        default=0,
+        ge=0,
+        le=100,
+        description="Aggregate risk score (0–100) summarising the scan findings.",
+    )
     findings: list[Finding] = Field(default_factory=list)
 
     @property
