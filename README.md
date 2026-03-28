@@ -29,6 +29,9 @@ parity-zero is in active early development. The reviewer pipeline is functional 
 - internal reviewer traceability (ReviewTrace)
 - PR validation scenario harness
 - stable ScanResult JSON contract
+- **real PR file content loading** from workspace checkout
+- **GitHub-native output**: job summary + PR comment posting
+- **git diff-based changed file discovery** with API fallback
 
 The control plane dashboard is intentionally deferred. See [roadmap context](.squad/context/roadmap.md).
 
@@ -75,6 +78,12 @@ parity-zero is designed to run as a GitHub Action on pull request events:
   with:
     github_token: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+The action automatically:
+1. Discovers changed files via `git diff` against the PR base
+2. Loads file contents from the checked-out workspace
+3. Runs the full reviewer pipeline (deterministic checks + contextual analysis)
+4. Posts results as a **GitHub job summary** (always) and **PR comment** (when permissions allow)
 
 See [GitHub Action Setup](docs/github-action-setup.md) for complete workflow examples with each provider mode.
 

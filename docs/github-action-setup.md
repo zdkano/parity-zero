@@ -6,11 +6,56 @@ parity-zero is designed to run as a GitHub Action on pull request events. This d
 
 1. A pull request is opened, synchronized, or reopened
 2. The GitHub Action checks out the repository
-3. parity-zero installs its Python dependencies
-4. The reviewer runs: reads PR context → discovers changed files → runs analysis → emits JSON + markdown
-5. Output is printed to the workflow log (PR comment posting is planned but not yet wired)
+3. The action fetches the PR base commit (for `git diff`)
+4. parity-zero installs its Python dependencies
+5. The reviewer discovers changed files via `git diff` against the PR base
+6. File contents are loaded from the workspace checkout
+7. The reviewer runs: deterministic checks + contextual analysis → structured findings
+8. Results are output as:
+   - **GitHub job summary** — visible in the workflow run summary tab
+   - **PR comment** — posted/updated on the pull request (when token has `pull-requests: write`)
+   - **Structured JSON** — printed to the workflow log
 
-The action is defined in `action.yml` as a **composite action** that sets up Python 3.12 and runs `python -m reviewer.action`.
+The action is defined in `action.yml` as a **composite action** that sets up Python 3.12, fetches the PR base, and runs `python -m reviewer.action`.
+
+## How Changed Files Are Discovered
+
+The reviewer uses a two-tier approach:
+
+1. **Primary: `git diff`** — runs `git diff --name-only --diff-filter=ACMR <base_sha> HEAD` using the PR base SHA from the GitHub event payload. This works with the checked-out repository and requires no additional API calls.
+2. **Fallback: GitHub REST API** — if `git diff` fails (e.g., base SHA not available), falls back to the GitHub API to list changed files for the PR.
+
+Files with status `removed` (deletions) are excluded — there is no content to review for deleted files.
+
+## How File Contents Are Loaded
+
+File contents are read from the workspace checkout (`GITHUB_WORKSPACE`):
+
+- **Text files** (UTF-8 decodable) are loaded and reviewed
+- **Binary files** are skipped (detected via UTF-8 decode failure)
+- **Large files** (> 1 MB) are skipped with a log warning
+- **Missing/deleted files** are skipped gracefully
+- **Unreadable files** are skipped with a log message
+
+This means the reviewer operates on the actual file contents from the PR head commit, as checked out by `actions/checkout`.
+
+## How Results Are Surfaced
+
+### GitHub Job Summary (baseline — always available)
+
+The reviewer writes its markdown summary to `GITHUB_STEP_SUMMARY`. This is visible in the Actions workflow run page under the "Summary" tab. No additional permissions are required.
+
+### PR Comment (when permissions allow)
+
+The reviewer posts its markdown summary as a comment on the pull request. This requires the `pull-requests: write` permission.
+
+**Comment behavior:**
+- On first run, a new comment is created
+- On subsequent runs, the **existing comment is updated** (not duplicated)
+- The comment is identified by a `<!-- parity-zero-review -->` HTML marker
+- If the token lacks `pull-requests: write`, the comment is silently skipped
+
+**Known limitation:** The comment search checks the first 100 comments only. On PRs with more than 100 comments, a duplicate comment may be posted. This is a known Phase 1 limitation.
 
 ## Permissions
 
@@ -18,9 +63,11 @@ The workflow needs:
 
 ```yaml
 permissions:
-  contents: read          # Read repository contents
-  pull-requests: write    # Post PR comments (when wired)
+  contents: read          # Read repository contents and run git diff
+  pull-requests: write    # Post/update PR comments
 ```
+
+If `pull-requests: write` is not granted, the reviewer still works — it writes results to the job summary and workflow log, but skips PR comment posting.
 
 ## Basic Workflow (Disabled Provider)
 
@@ -201,9 +248,12 @@ Tagged releases are not yet published. See [Release & Packaging](release-packagi
 
 ## Current Limitations
 
-- **PR comment posting is not yet wired** — output goes to the workflow log. PR comment integration via the GitHub API is planned.
-- **File contents are not yet read from the workspace** — the action discovers changed file paths via the GitHub API but currently passes empty content. The `mock_run()` path demonstrates the full engine with realistic content.
+- **Comment dedup on large PRs** — the comment search checks the first 100 comments. PRs with more than 100 comments may get duplicate review comments.
+- **Binary files are skipped** — non-UTF-8 files (images, compiled artifacts) are not reviewed.
+- **Large files are skipped** — files over 1 MB are excluded to keep review times reasonable.
+- **Deleted files are not reviewed** — files removed in the PR have no content to review; only added/modified/renamed files are analyzed.
 - **No caching** — dependencies are installed fresh on each run. pip caching can be added to the workflow for faster runs.
 - **Single-job only** — the action runs as a single step. Matrix or parallel review is not supported.
+- **Shallow clone considerations** — the action fetches the PR base commit, but very shallow clones may occasionally cause `git diff` to fall back to the API method.
 
 These limitations are expected in Phase 1 and will be addressed as the reviewer matures.

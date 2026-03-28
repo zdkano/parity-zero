@@ -88,6 +88,7 @@ Provider output never creates findings, affects scoring, or influences the pass/
 ```
 reviewer/
   action.py          ─ entry point (GitHub Action orchestration)
+  github_runtime.py  ─ runtime helpers (file discovery, loading, output surfacing)
   engine.py          ─ analysis engine (coordinates all layers)
   models.py          ─ data models (PRContent, PullRequestContext, ReviewPlan, etc.)
   planner.py         ─ review planning

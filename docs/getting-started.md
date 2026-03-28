@@ -43,6 +43,12 @@ python -m reviewer.action
 
 This runs the full reviewer pipeline with no live provider. It reads PR context from GitHub Actions environment variables (`GITHUB_EVENT_PATH`, `GITHUB_REPOSITORY`, `PR_NUMBER`). Outside of Actions, it produces output with empty PR context.
 
+In a real GitHub Actions environment, the reviewer:
+1. Discovers changed files via `git diff` against the PR base SHA
+2. Loads file contents from the workspace checkout
+3. Runs deterministic checks and contextual analysis on real code
+4. Posts results to the GitHub job summary and as a PR comment
+
 ### Mock demo
 
 The `mock_run()` function exercises the full pipeline with synthetic file contents:
@@ -143,7 +149,7 @@ If you set `PARITY_REASONING_PROVIDER` but the reviewer logs show it falling bac
 
 ### Empty output from `python -m reviewer.action`
 
-Outside of a GitHub Actions environment, the reviewer has no PR context to discover changed files. Use `mock_run()` for local testing, or run in a GitHub Actions workflow.
+Outside of a GitHub Actions environment, the reviewer has no PR context to discover changed files. Use `mock_run()` for local testing, or run in a GitHub Actions workflow. When running locally, the reviewer still produces valid ScanResult JSON and markdown — just with no findings (since no files are loaded).
 
 ### Tests fail on import
 
