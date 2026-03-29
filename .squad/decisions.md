@@ -2006,3 +2006,89 @@ The evaluation layer (ADR-038) provided assertion-based testing with 13 curated 
 - **Fixture generation from real PRs** — manual curation for now
 - **Scorecard trend tracking over time** — single-run snapshot for now
 - **Provider comparison quality** — may vary by prompt/provider tuning
+
+---
+
+## ADR-040: Reviewer quality tuning pass — anti-redundancy, specificity, and conciseness
+
+**Status:** Accepted
+**Date:** 2026-03-29
+
+### Decision
+
+Improve reviewer output quality through targeted tuning of provider notes, observation generation, overlap suppression, and markdown presentation, driven by the realistic evaluation corpus.
+
+### Context
+
+With the realistic evaluation corpus and comparison layer in place (ADR-039), practical quality issues became visible:
+
+1. **Generic provider notes** — MockProvider produced metadata restatements (file counts, focus area lists, baseline context) that added zero security insight.
+2. **Useless observation enrichment** — provider detail like "Analysed 1 changed file(s)" was being appended to observations.
+3. **Redundant Recommendations section** — duplicated inline recommendations already shown per-finding.
+4. **Generic observation titles** — same title for every auth-sensitive file regardless of which file.
+5. **Redundant concerns** — multiple concerns all targeting the same single file with overlapping messaging.
+6. **Weak overlap suppression** — did not catch metadata restatement patterns.
+
+### What changed
+
+#### Provider note quality (MockProvider)
+- MockProvider generates file-specific, security-relevant notes referencing actual changed file paths, review reasons, and focus areas.
+- Cross-file interaction note only generated for multi-file PRs.
+- Empty request produces no notes (correct quiet behavior).
+
+#### System prompt improvements (live providers)
+- Added anti-redundancy guidance: "do not restate context metadata".
+- Added anti-summary guidance: "only provide new observations".
+- Added concrete code reference guidance: "reference concrete code patterns, functions, or configurations".
+
+#### Overlap suppression improvements
+- Content-quality filter rejects metadata restatement notes (file counts, focus areas, baseline context, memory categories).
+- Minimum summary length filter (15 chars) rejects too-terse notes.
+- Combined with existing 60% keyword overlap threshold.
+
+#### Observation enrichment quality
+- Enrichment rejected when provider detail is too short (< 30 chars).
+- Enrichment rejected when provider detail heavily overlaps existing summary (> 60% keyword overlap).
+- Each observation enriched at most once (no double-enrichment from multiple matching notes).
+
+#### Observation title specificity
+- Titles now include the actual file basename (e.g., "Auth-sensitive boundary: users.py").
+- All six observation types updated: sensitive_auth, auth_consistency, auth_area, framework_sensitive, sensitive_path, memory_alignment.
+
+#### Markdown output improvements
+- Removed redundant Recommendations section — recommendations shown inline per finding via 💡 marker.
+- Concern display deduplicated when multiple concerns target same paths (max 2 per path group, max 5 total, highest confidence first).
+- Provider notes display capped at 3 for conciseness.
+
+#### Quality assertions
+- 124 new focused tests in `tests/test_quality_tuning.py`.
+- Auth scenario specificity: observations reference changed files, titles include filename.
+- Low-signal quietness: zero output, short markdown (< 500 chars), no concern/observation/note sections.
+- Provider note quality: non-generic, file-specific, metadata restatement detection.
+- Redundancy suppression: overlapping notes filtered, metadata filtered, no duplicate titles.
+- Markdown quality: correct headers/footers, no redundant sections, concern deduplication.
+- Comparison quality: provider value detection, quietness, trust boundaries, stability.
+- Trust boundary regression: no provider-sourced findings, clean JSON, deterministic scoring.
+
+### What did NOT change
+- ScanResult JSON contract — unchanged
+- Scoring model — unchanged (findings-only, deterministic)
+- Trust boundaries — unchanged (provider output remains non-authoritative)
+- Finding categories — unchanged
+- Provider trust level — unchanged
+- Backend/persistence — unchanged
+- Existing evaluation harness behavior — unchanged
+
+### Design decisions
+- **Metadata restatement filter uses phrase matching** — simple, maintainable, low false-positive risk for known patterns.
+- **Concern deduplication in formatter, not generator** — generation logic unchanged, display caps redundancy.
+- **Single enrichment per observation** — avoids noisy compound summaries.
+- **Quality assertions are explicit, not snapshot-based** — specific property checks rather than brittle golden-file comparisons.
+- **Low-signal markdown threshold at 500 chars** — verified empirically against realistic corpus.
+
+### Deferred concerns
+- **Provider quality still depends on prompt/provider tuning** — mock provider is a proxy; live provider quality may differ.
+- **Provider-backed findings remain deferred** — trust calibration not yet in place.
+- **Some quality rules remain heuristic** — metadata phrase list, keyword overlap thresholds may need refinement.
+- **Richer ranking/reranking of provider notes remains future work** — current approach is suppression-based.
+- **Concern de-duplication could be done at generation time** — kept at display layer for now to avoid disrupting existing logic.
