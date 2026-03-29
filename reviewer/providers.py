@@ -275,61 +275,118 @@ class MockProvider(ReasoningProvider):
         notes: list[str] = []
         structured: list[CandidateNote] = []
 
-        notes.append(
-            f"[mock-reasoning] Analysed {request.file_count} changed file(s)."
+        paths = [f.get("path", "") for f in request.changed_files_summary[:5]]
+
+        # Per-file security-relevant notes (up to 3 files).
+        for f_info in request.changed_files_summary[:3]:
+            path = f_info.get("path", "")
+            focus = f_info.get("focus_areas", "")
+            if focus:
+                summary = (
+                    f"{path} may warrant closer review for {focus} patterns; "
+                    f"consider verifying edge cases and error handling paths."
+                )
+            else:
+                summary = (
+                    f"{path} was changed; consider reviewing for input "
+                    f"validation and secure defaults."
+                )
+            notes.append(f"[mock-reasoning] {summary}")
+            structured.append(CandidateNote(
+                title=f"Security review scope for {path}",
+                summary=summary,
+                related_paths=[path],
+                confidence="low",
+                source="mock",
+            ))
+
+        # Cross-file count note.
+        count_summary = (
+            f"Reviewed {request.file_count} changed file(s); consider "
+            f"whether interactions between modified files introduce "
+            f"security-relevant state changes."
         )
+        notes.append(f"[mock-reasoning] {count_summary}")
         structured.append(CandidateNote(
-            title="File analysis summary",
-            summary=f"Analysed {request.file_count} changed file(s).",
-            related_paths=[f.get("path", "") for f in request.changed_files_summary[:5]],
+            title=f"Cross-file review ({request.file_count} changed file(s))",
+            summary=count_summary,
+            related_paths=paths,
             confidence="low",
             source="mock",
         ))
 
+        # Plan context — tied to the first changed file when available.
         if request.has_plan_context:
             areas = ", ".join(request.plan_focus_areas[:3])
-            notes.append(
-                f"[mock-reasoning] Review plan focuses on: {areas}."
+            target = paths[0] if paths else "this PR"
+            summary = (
+                f"{target} is flagged for {areas} review; consider whether "
+                f"access control and validation patterns are consistent "
+                f"with repository conventions."
             )
+            notes.append(f"[mock-reasoning] {summary}")
             structured.append(CandidateNote(
-                title=f"Review focus: {areas}",
-                summary=f"Review plan focuses on: {areas}.",
+                title=f"Review focus alignment for {target}",
+                summary=summary,
+                related_paths=paths[:1],
                 confidence="low",
                 source="mock",
             ))
 
+        # Baseline context — framework-specific guidance.
         if request.has_baseline_context:
             frameworks = ", ".join(request.baseline_frameworks[:3])
-            notes.append(
-                f"[mock-reasoning] Repository baseline context: {frameworks}."
+            target = paths[0] if paths else "this PR"
+            summary = (
+                f"{target} operates in a {frameworks} context; consider "
+                f"verifying that framework-specific security middleware "
+                f"and defaults are applied correctly."
             )
+            notes.append(f"[mock-reasoning] {summary}")
             structured.append(CandidateNote(
-                title=f"Baseline context: {frameworks}",
-                summary=f"Repository baseline context: {frameworks}.",
+                title=f"Framework context for {target} ({frameworks})",
+                summary=summary,
+                related_paths=paths[:1],
                 confidence="low",
                 source="mock",
             ))
 
+        # Memory context — prior concern recurrence.
         if request.has_memory_context:
             cats = ", ".join(request.memory_categories[:3])
-            notes.append(
-                f"[mock-reasoning] Review memory categories: {cats}."
+            target = paths[0] if paths else "this PR"
+            summary = (
+                f"Review history notes prior concerns about {cats} in "
+                f"similar areas; {target} may exhibit related patterns "
+                f"worth re-checking."
             )
+            notes.append(f"[mock-reasoning] {summary}")
             structured.append(CandidateNote(
-                title=f"Memory context: {cats}",
-                summary=f"Review memory categories: {cats}.",
+                title=f"Prior review pattern recurrence in {target}",
+                summary=summary,
+                related_paths=paths[:1],
                 confidence="low",
                 source="mock",
             ))
 
+        # Deterministic findings — cross-reference with changed files.
         if request.deterministic_findings_summary:
+            finding = request.deterministic_findings_summary[0]
+            finding_file = finding.get("file", "unknown")
+            finding_cat = finding.get("category", "security")
             count = len(request.deterministic_findings_summary)
-            notes.append(
-                f"[mock-reasoning] {count} deterministic finding(s) noted as context."
+            target = paths[0] if paths else "this PR"
+            summary = (
+                f"Deterministic checks flagged {count} issue(s) including "
+                f"{finding_cat} concerns in {finding_file}; consider "
+                f"whether {target} has related patterns that may need "
+                f"attention."
             )
+            notes.append(f"[mock-reasoning] {summary}")
             structured.append(CandidateNote(
-                title="Deterministic context",
-                summary=f"{count} deterministic finding(s) noted as context.",
+                title=f"Contextual review of deterministic signals in {target}",
+                summary=summary,
+                related_paths=[finding_file] + paths[:1],
                 confidence="low",
                 source="mock",
             ))
