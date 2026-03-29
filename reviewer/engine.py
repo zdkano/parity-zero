@@ -41,6 +41,7 @@ from reviewer.models import PRContent, PullRequestContext, ReviewBundle, ReviewC
 from reviewer.planner import build_review_plan
 from reviewer.providers import CandidateNote, DisabledProvider, ReasoningProvider
 from reviewer.reasoning import run_reasoning
+from reviewer.repo_config import RepoConfig, filter_excluded_paths
 
 # Severity weights used for risk_score derivation.
 _SEVERITY_WEIGHTS: dict[Severity, int] = {
@@ -91,6 +92,7 @@ class AnalysisResult:
 def analyse(
     pr_input: PullRequestContext | PRContent | dict[str, str],
     provider: ReasoningProvider | None = None,
+    config: RepoConfig | None = None,
 ) -> AnalysisResult:
     """Run all analysis strategies against the changed file contents.
 
@@ -106,16 +108,25 @@ def analyse(
     layer will use it for provider-backed analysis.  The default is
     ``DisabledProvider`` — no live credentials required.
 
+    When a ``RepoConfig`` is supplied (ADR-041), the engine applies
+    path exclusions, low-signal treatment, and provider-skip rules
+    before running analysis.
+
     Args:
         pr_input: A ``PullRequestContext`` (preferred), ``PRContent``,
             or a legacy ``{path: content}`` dict.  Non-context inputs
             are automatically wrapped for backward compatibility.
         provider: An optional ``ReasoningProvider``.  Defaults to
             ``DisabledProvider`` when not supplied.
+        config: An optional ``RepoConfig``.  Defaults to an empty
+            (no-op) config when not supplied.
 
     Returns:
         An AnalysisResult with combined findings and reasoning notes.
     """
+    if config is None:
+        config = RepoConfig()
+
     # -- Normalise input to PullRequestContext --
     if isinstance(pr_input, dict):
         ctx = PullRequestContext.from_dict(pr_input)
@@ -124,7 +135,25 @@ def analyse(
     else:
         ctx = pr_input
 
+    # -- Apply exclude_paths (ADR-041) --
     file_contents = ctx.pr_content.to_dict()
+    file_contents, _excluded = filter_excluded_paths(file_contents, config)
+
+    # If files were excluded, rebuild the context with the filtered set
+    if _excluded:
+        from reviewer.models import PRFile, SkippedFile
+        filtered_files = [f for f in ctx.pr_content.files if not config.is_excluded(f.path)]
+        excluded_skipped = [SkippedFile(path=p, reason="config_excluded") for p in _excluded]
+        ctx = PullRequestContext(
+            pr_content=PRContent(
+                files=filtered_files,
+                skipped_files=list(ctx.pr_content.skipped_files) + excluded_skipped,
+            ),
+            baseline_profile=ctx.baseline_profile,
+            memory=ctx.memory,
+        )
+        file_contents = ctx.pr_content.to_dict()
+
     findings: list[Finding] = []
 
     # -- Build structured review plan (ADR-021) --
@@ -143,6 +172,7 @@ def analyse(
         plan=review_plan,
         provider=provider,
         deterministic_findings=det_findings,
+        config=config,
     )
     findings.extend(reasoning_result.findings)
 
