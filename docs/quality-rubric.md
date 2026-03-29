@@ -91,9 +91,32 @@ Some quality aspects are intentionally **not** encoded as automated checks:
 
 These may be addressed in future phases through manual review, human evaluation, or more sophisticated automated quality metrics.
 
+## Evaluation Scorecard
+
+The `EvaluationScorecard` (ADR-039) provides aggregate quality rates across the full scenario corpus:
+
+| Metric | What it captures |
+|---|---|
+| Findings stability | Whether deterministic findings are consistent across provider modes |
+| Decision stability | Whether pass/warn/block decisions are consistent |
+| Provider value | Whether provider reasoning adds meaningful observations or notes |
+| Gate accuracy | Whether the provider gate invokes correctly (invoke on signal, skip on noise) |
+| Trust boundaries | Whether provider output never pollutes findings or scoring |
+| Quietness | Whether low-signal scenarios produce no unnecessary output |
+| Noise | Whether any scenario produces duplicate or untethered output |
+
+The scorecard is **a practical tuning aid, not a scientific benchmark**. It captures aggregate percentages across all scenarios, not per-scenario grades.
+
+```bash
+# Generate the scorecard
+python -m reviewer.validation --scorecard
+```
+
 ## How to Use This Rubric
 
 1. **Before changing the pipeline**: Run `python -m reviewer.validation --summary` to see current behavior.
 2. **After changing the pipeline**: Run `python -m pytest tests/test_evaluation.py -v` to verify quality expectations still hold.
 3. **When tuning**: Use `python -m reviewer.validation --compare <scenario>` to see how changes affect disabled vs mock behavior.
-4. **When adding scenarios**: Follow the existing corpus patterns and add appropriate tags, security_focus, and expected behavior assertions.
+4. **When evaluating overall quality**: Run `python -m reviewer.validation --scorecard` to see aggregate quality rates across all scenarios.
+5. **When testing realistic scenarios**: Run `python -m reviewer.validation --realistic` to exercise file-backed corpus scenarios.
+6. **When adding scenarios**: Follow the existing corpus patterns and add appropriate tags, security_focus, and expected behavior assertions.

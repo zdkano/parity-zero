@@ -157,6 +157,44 @@ The comparison layer runs the same scenario across provider modes and captures:
 
 Comparison currently supports **disabled** and **mock** modes only. Live provider comparison (github-models, anthropic, openai) is structurally supported but requires credentials and is deferred.
 
+## Realistic Evaluation Corpus
+
+The realistic corpus (ADR-039) extends the evaluation layer with 10 file-backed scenarios that load fixture content from `test/eval/fixtures/`. These provide more representative PR-like inputs than the synthetic scenarios above.
+
+### How it differs from synthetic scenarios
+
+- **File-backed** — changed file content is loaded from fixture files, not inline strings
+- **Richer patterns** — fixtures contain realistic code structures, not minimal stubs
+- **Representative** — scenarios cover the categories developers actually encounter in PRs
+
+### Scenario categories
+
+| ID | Description | Provider Mode | Tags |
+|---|---|---|---|
+| `realistic-missing-auth-route` | Auth route missing authentication middleware | mock | realistic, auth |
+| `realistic-authz-business-logic` | Authorization bypass in business logic | mock | realistic, authz |
+| `realistic-unsafe-sql-input` | Unsafe SQL input construction | mock | realistic, input-validation |
+| `realistic-insecure-config` | Insecure configuration settings | disabled | realistic, config |
+| `realistic-github-token-exposure` | GitHub token exposed in source | disabled | realistic, secrets |
+| `realistic-harmless-refactor` | Pure code refactor, no security signals | disabled | realistic, refactor |
+| `realistic-docs-changelog` | Documentation and changelog changes only | disabled | realistic, docs |
+| `realistic-test-expansion` | Test file additions only | disabled | realistic, tests |
+| `realistic-provider-helpful-auth` | Auth code where provider adds useful context | mock | realistic, provider-helpful |
+| `realistic-memory-recurring-vuln` | Recurring vulnerability flagged by review memory | mock | realistic, memory-influenced |
+
+### Running the realistic corpus
+
+```bash
+# Run all realistic scenarios
+python -m reviewer.validation --realistic
+
+# Print evaluation scorecard (covers all scenarios)
+python -m reviewer.validation --scorecard
+
+# Compare a realistic scenario across provider modes
+python -m reviewer.validation --compare realistic-missing-auth-route
+```
+
 ## Assertion Types
 
 The harness supports these assertion types:
@@ -210,11 +248,12 @@ The harness **never requires live credentials**. It uses only `DisabledProvider`
 
 The following are intentionally **not** part of the current harness:
 
-- **Live provider comparison** — testing with real API calls; structurally supported, needs credentials
-- **Benchmark scoring** — quantitative precision/recall metrics across a large corpus
+- **Live provider comparison** — testing with real API calls; structurally supported but remains opt-in (requires credentials, non-deterministic)
+- **Benchmark scoring** — quantitative precision/recall metrics remain intentionally lightweight; the scorecard is a tuning aid, not a scientific benchmark
 - **Performance measurement** — timing and resource usage tracking
 - **Scenario generation** — automatic scenario creation from real PR data
+- **Corpus expansion and versioning** — current corpus is point-in-time; snapshot tagging and systematic expansion remain future work
 - **Cross-scenario regression** — comparing results across corpus versions
-- **Corpus versioning** — no version tagging for corpus snapshots
+- **Quality assertions** — current heuristics are starting points that will evolve as the reviewer improves
 
 These may be added in future phases as the reviewer pipeline matures.

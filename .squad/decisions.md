@@ -1946,3 +1946,63 @@ Corpus expanded from 7 to 13 curated scenarios:
 - Covers: scenario metadata/tags/expectations, expanded corpus loading/determinism, comparison mode (disabled vs mock), output quality assertions, low-noise/usefulness checks, trust boundaries across expanded corpus, ScanResult contract stability, all 13 scenarios pass integration tests, cross-scenario comparison trust boundaries
 - All 1160 existing tests continue to pass unchanged
 - Total: 1263 tests pass (after including expanded parametrized scenarios in existing test file)
+
+---
+
+## ADR-039: Realistic evaluation corpus and lightweight scorecard for reviewer tuning
+
+**Status:** Accepted
+**Date:** 2026-03-29
+
+### Decision
+
+Build a realistic, file-backed evaluation corpus and lightweight scorecard to support evidence-based reviewer tuning.
+
+### Context
+
+The evaluation layer (ADR-038) provided assertion-based testing with 13 curated synthetic scenarios, but lacked representative PR-like fixtures and a structured way to assess overall reviewer behavior across a corpus. Synthetic scenarios use inline strings — useful for fast iteration but not representative of real PR content. There was no aggregate view of reviewer quality.
+
+### What changed
+
+#### Realistic corpus
+- 10 realistic scenarios backed by fixture files in `test/eval/fixtures/`
+- Categories: missing auth, authz business logic, unsafe SQL input, insecure config, GitHub token exposure, harmless refactor, docs/changelog, test expansion, provider-helpful auth, memory-recurring vuln
+- Scenarios prefixed with `realistic-` and tagged `realistic`
+- Fixture content loaded from files for readability and maintainability
+
+#### Evaluation scorecard
+- `EvaluationScorecard` with aggregate rates: findings stability, decision stability, provider value, gate accuracy, trust boundaries, quietness, noise
+- Scorecard is explicitly "a practical tuning aid, not a scientific benchmark"
+- Rates are aggregate percentages across all scenarios, not per-scenario grades
+
+#### CLI extensions
+- `python -m reviewer.validation --realistic` — run realistic corpus
+- `python -m reviewer.validation --scorecard` — print evaluation scorecard
+
+#### Test coverage
+- 144 new tests covering: corpus structure, execution, comparison, scorecard, output quality, quietness/value-add, trust boundaries, ScanResult contract, regression safety
+- Total: 1407 tests pass
+
+### What did NOT change
+- ScanResult JSON contract — unchanged
+- Scoring model — unchanged (findings-only, deterministic)
+- Trust boundaries — unchanged (provider output remains non-authoritative)
+- Provider implementations — unchanged
+- Existing pipeline behavior — unchanged
+- Backend persistence — unchanged
+
+### Design decisions
+- **Fixtures stored as files** — for readability and maintainability over inline strings
+- **Realistic scenarios prefixed with `realistic-`** — clear namespace separation from synthetic scenarios
+- **Scorecard rates are aggregate percentages** — not per-scenario grades; avoids false precision
+- **Scorecard is a tuning aid** — explicitly not a scientific benchmark
+- **Live-provider comparison structurally supported but deferred** — requires credentials, non-deterministic
+- **Comparison defaults to disabled/mock modes only** — safe to run without credentials
+
+### Deferred concerns
+- **Live-provider benchmarking** — requires credentials, non-deterministic; structurally supported but not exercised
+- **Benchmark scoring/metrics** — quantitative precision/recall deferred; current evaluation is assertion-based
+- **Corpus versioning** — point-in-time only, no snapshot tagging
+- **Fixture generation from real PRs** — manual curation for now
+- **Scorecard trend tracking over time** — single-run snapshot for now
+- **Provider comparison quality** — may vary by prompt/provider tuning
