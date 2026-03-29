@@ -174,7 +174,7 @@ The realistic corpus (ADR-039) extends the evaluation layer with 10 file-backed 
 | `realistic-missing-auth-route` | Auth route missing authentication middleware | mock | realistic, auth |
 | `realistic-authz-business-logic` | Authorization bypass in business logic | mock | realistic, authz |
 | `realistic-unsafe-sql-input` | Unsafe SQL input construction | mock | realistic, input-validation |
-| `realistic-insecure-config` | Insecure configuration settings | disabled | realistic, config |
+| `realistic-insecure-session-config` | Insecure configuration settings | disabled | realistic, config |
 | `realistic-github-token-exposure` | GitHub token exposed in source | disabled | realistic, secrets |
 | `realistic-harmless-refactor` | Pure code refactor, no security signals | disabled | realistic, refactor |
 | `realistic-docs-changelog` | Documentation and changelog changes only | disabled | realistic, docs |
