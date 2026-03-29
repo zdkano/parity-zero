@@ -2,7 +2,7 @@
 
 This document describes the practical quality expectations that parity-zero enforces through its evaluation layer. These are heuristic expectations — they encode what "good reviewer behavior" means today and will evolve as the pipeline improves.
 
-See ADR-038 for context. These expectations are enforced in `tests/test_evaluation.py`.
+See ADR-038 and ADR-039 for context. These expectations are enforced in `tests/test_evaluation.py` and `tests/test_realistic_evaluation.py`.
 
 ## What This Is
 
@@ -93,7 +93,7 @@ These may be addressed in future phases through manual review, human evaluation,
 
 ## Evaluation Scorecard
 
-The `EvaluationScorecard` (ADR-039) provides aggregate quality rates across the full scenario corpus:
+The `EvaluationScorecard` (ADR-039) provides aggregate quality rates across the realistic scenario corpus:
 
 | Metric | What it captures |
 |---|---|
@@ -105,7 +105,7 @@ The `EvaluationScorecard` (ADR-039) provides aggregate quality rates across the 
 | Quietness | Whether low-signal scenarios produce no unnecessary output |
 | Noise | Whether any scenario produces duplicate or untethered output |
 
-The scorecard is **a practical tuning aid, not a scientific benchmark**. It captures aggregate percentages across all scenarios, not per-scenario grades.
+The scorecard is **a practical tuning aid, not a scientific benchmark**. It captures aggregate percentages across the realistic corpus, not per-scenario grades.
 
 ```bash
 # Generate the scorecard
@@ -114,9 +114,9 @@ python -m reviewer.validation --scorecard
 
 ## How to Use This Rubric
 
-1. **Before changing the pipeline**: Run `python -m reviewer.validation --summary` to see current behavior.
-2. **After changing the pipeline**: Run `python -m pytest tests/test_evaluation.py -v` to verify quality expectations still hold.
+1. **Before changing the pipeline**: Run `python -m reviewer.validation --summary` to see current behavior across all scenarios.
+2. **After changing the pipeline**: Run `python -m pytest tests/test_evaluation.py tests/test_realistic_evaluation.py -v` to verify quality expectations still hold.
 3. **When tuning**: Use `python -m reviewer.validation --compare <scenario>` to see how changes affect disabled vs mock behavior.
-4. **When evaluating overall quality**: Run `python -m reviewer.validation --scorecard` to see aggregate quality rates across all scenarios.
+4. **When evaluating overall quality**: Run `python -m reviewer.validation --scorecard` to see aggregate quality rates across the realistic corpus.
 5. **When testing realistic scenarios**: Run `python -m reviewer.validation --realistic` to exercise file-backed corpus scenarios.
 6. **When adding scenarios**: Follow the existing corpus patterns and add appropriate tags, security_focus, and expected behavior assertions.

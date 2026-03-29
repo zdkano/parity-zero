@@ -1,6 +1,6 @@
 # Validation Harness
 
-The PR validation harness is a scenario-based testing and evaluation framework for validating reviewer behavior across representative pull request situations. See ADR-032 and ADR-038.
+The PR validation harness is a scenario-based testing and evaluation framework for validating reviewer behavior across representative pull request situations. See ADR-032, ADR-038, and ADR-039.
 
 ## Purpose
 
@@ -15,6 +15,15 @@ This supports:
 - **Pipeline coverage** — exercise different review paths (auth-sensitive, trivial, memory-influenced, etc.)
 - **Provider comparison** — compare reviewer behavior across disabled/mock provider modes
 - **Output quality validation** — verify conciseness, structure, and non-redundancy of output
+
+## Two Corpora
+
+The harness contains two complementary corpora:
+
+- **Synthetic corpus** (13 scenarios) — inline content, minimal stubs covering key review paths. Defined in `reviewer/validation/scenario.py`.
+- **Realistic corpus** (10 scenarios) — file-backed fixtures in `test/eval/fixtures/` with representative PR-like content. Defined in `reviewer/validation/realistic.py`.
+
+Both corpora use the same `ValidationScenario` format. CLI commands like `--list`, `--tag`, `--summary`, `--compare`, and single-scenario lookup search **both** corpora by default. The `--realistic` command runs only the realistic corpus.
 
 ## What a Scenario Contains
 
@@ -49,7 +58,7 @@ ValidationScenario
     └── no_trust_boundary_violations — provider did not pollute scoring (default: True)
 ```
 
-## Current Scenarios
+## Synthetic Scenarios (13)
 
 | ID | Description | Provider Mode | Tags |
 |---|---|---|---|
@@ -72,11 +81,17 @@ ValidationScenario
 ### Via pytest (recommended)
 
 ```bash
+# Run all tests (from repo root — pytest.ini restricts to tests/)
+python -m pytest tests/ -v
+
 # Run all validation scenario tests
 python -m pytest tests/test_validation_harness.py -v
 
 # Run all evaluation tests (output quality, comparison, etc.)
 python -m pytest tests/test_evaluation.py -v
+
+# Run all realistic evaluation tests
+python -m pytest tests/test_realistic_evaluation.py -v
 
 # Run a specific scenario class
 python -m pytest tests/test_validation_harness.py::TestAuthSensitiveScenario -v
@@ -93,43 +108,53 @@ python -m pytest tests/test_evaluation.py::TestOutputQuality -v
 
 ### Via CLI entrypoint
 
+All CLI commands search **both** synthetic and realistic corpora unless otherwise noted.
+
 ```bash
-# Run all scenarios
+# Run all scenarios (synthetic + realistic)
 python -m reviewer.validation
 
-# Run a single scenario
+# Run a single scenario (searches both corpora)
 python -m reviewer.validation auth-sensitive
 
-# Compare one scenario across provider modes
+# Compare one scenario across provider modes (searches both corpora)
 python -m reviewer.validation --compare auth-sensitive
 
-# Print concise evaluation summary table
+# Print concise evaluation summary table (all scenarios)
 python -m reviewer.validation --summary
 
-# List all scenarios with metadata
+# List all scenarios with metadata (both corpora)
 python -m reviewer.validation --list
 
-# List scenarios by tag
+# List scenarios by tag (searches both corpora)
 python -m reviewer.validation --tag auth
+
+# Run only realistic corpus
+python -m reviewer.validation --realistic
+
+# Print evaluation scorecard (realistic corpus)
+python -m reviewer.validation --scorecard
 ```
 
 ### Programmatic access
 
 ```python
 from reviewer.validation import (
-    SCENARIOS, get_scenario, list_scenario_ids,
-    get_scenarios_by_tag, list_tags,
+    SCENARIOS, REALISTIC_SCENARIOS,
+    all_scenarios, all_tags, all_scenarios_by_tag, find_scenario,
     run_scenario, run_comparison, format_comparison_summary,
+    build_scorecard, format_scorecard,
 )
 
-# List available scenarios
-print(list_scenario_ids())
+# List all scenario ids (both corpora)
+from reviewer.validation import all_scenario_ids
+print(all_scenario_ids())
 
-# Filter by tag
-auth_scenarios = get_scenarios_by_tag("auth")
+# Filter by tag across both corpora
+auth_scenarios = all_scenarios_by_tag("auth")
 
-# Run a single scenario
-scenario = get_scenario("auth-sensitive")
+# Look up any scenario by id (searches both corpora)
+scenario = find_scenario("auth-sensitive")
 result = run_scenario(scenario)
 
 print(f"Passed: {result.passed}")
@@ -140,6 +165,10 @@ for a in result.assertions:
 # Compare across provider modes
 comp = run_comparison(scenario)
 print(format_comparison_summary(comp))
+
+# Build scorecard for realistic corpus
+scorecard = build_scorecard(REALISTIC_SCENARIOS)
+print(format_scorecard(scorecard))
 ```
 
 ## Provider Comparison
@@ -157,7 +186,7 @@ The comparison layer runs the same scenario across provider modes and captures:
 
 Comparison currently supports **disabled** and **mock** modes only. Live provider comparison (github-models, anthropic, openai) is structurally supported but requires credentials and is deferred.
 
-## Realistic Evaluation Corpus
+## Realistic Scenarios (10)
 
 The realistic corpus (ADR-039) extends the evaluation layer with 10 file-backed scenarios that load fixture content from `test/eval/fixtures/`. These provide more representative PR-like inputs than the synthetic scenarios above.
 
@@ -171,24 +200,24 @@ The realistic corpus (ADR-039) extends the evaluation layer with 10 file-backed 
 
 | ID | Description | Provider Mode | Tags |
 |---|---|---|---|
-| `realistic-missing-auth-route` | Auth route missing authentication middleware | mock | realistic, auth |
-| `realistic-authz-business-logic` | Authorization bypass in business logic | mock | realistic, authz |
-| `realistic-unsafe-sql-input` | Unsafe SQL input construction | mock | realistic, input-validation |
-| `realistic-insecure-session-config` | Insecure configuration settings | disabled | realistic, config |
-| `realistic-github-token-exposure` | GitHub token exposed in source | disabled | realistic, secrets |
-| `realistic-harmless-refactor` | Pure code refactor, no security signals | disabled | realistic, refactor |
-| `realistic-docs-changelog` | Documentation and changelog changes only | disabled | realistic, docs |
-| `realistic-test-expansion` | Test file additions only | disabled | realistic, tests |
-| `realistic-provider-helpful-auth` | Auth code where provider adds useful context | mock | realistic, provider-helpful |
-| `realistic-memory-recurring-vuln` | Recurring vulnerability flagged by review memory | mock | realistic, memory-influenced |
+| `realistic-missing-auth-route` | Auth route missing authentication middleware | mock | realistic, auth, provider-value |
+| `realistic-authz-business-logic` | Authorization bypass in business logic | mock | realistic, authz, provider-value |
+| `realistic-unsafe-sql-input` | Unsafe SQL input construction | mock | realistic, input-validation, memory, provider-value |
+| `realistic-insecure-session-config` | Insecure configuration settings | disabled | realistic, config, deterministic |
+| `realistic-github-token-exposure` | GitHub token exposed in source | disabled | realistic, secrets, deterministic, no-provider |
+| `realistic-harmless-refactor` | Pure code refactor, no security signals | disabled | realistic, low-signal, no-findings, gate-skip |
+| `realistic-docs-changelog` | Documentation and changelog changes only | disabled | realistic, low-signal, no-findings, gate-skip |
+| `realistic-test-expansion` | Test file additions only | disabled | realistic, low-signal, no-findings, gate-skip |
+| `realistic-provider-helpful-auth` | Auth code where provider adds useful context | mock | realistic, auth, provider-value, observations |
+| `realistic-memory-recurring-vuln` | Recurring vulnerability flagged by review memory | mock | realistic, auth, authz, memory, provider-value |
 
 ### Running the realistic corpus
 
 ```bash
-# Run all realistic scenarios
+# Run only realistic scenarios
 python -m reviewer.validation --realistic
 
-# Print evaluation scorecard (covers all scenarios)
+# Print evaluation scorecard (realistic corpus)
 python -m reviewer.validation --scorecard
 
 # Compare a realistic scenario across provider modes
@@ -215,7 +244,7 @@ The harness supports these assertion types:
 
 ## Quality Expectations
 
-The evaluation layer encodes these practical quality expectations (see `tests/test_evaluation.py`):
+The evaluation layer encodes these practical quality expectations (see `tests/test_evaluation.py` and `tests/test_realistic_evaluation.py`):
 
 - **No generic filler** — low-signal scenarios produce no findings, concerns, or observations
 - **No duplicated output** — no duplicate finding title+file pairs

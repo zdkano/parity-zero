@@ -60,7 +60,7 @@ All providers are disabled by default. Provider output is **non-authoritative** 
 # Clone and install
 pip install -r requirements.txt
 
-# Run all tests (~1400 tests)
+# Run all tests (~1420 tests)
 python -m pytest tests/ -v
 
 # Run the reviewer locally with disabled provider
@@ -72,16 +72,16 @@ python -c "from reviewer.action import mock_run; r = mock_run(); print(r['markdo
 # Run validation scenarios
 python -m pytest tests/test_validation_harness.py -v
 
-# Run evaluation summary
+# Run all evaluation scenarios (synthetic + realistic)
 python -m reviewer.validation --summary
 
 # Compare a scenario across provider modes
 python -m reviewer.validation --compare auth-sensitive
 
-# Run realistic evaluation corpus
+# Run only realistic evaluation corpus
 python -m reviewer.validation --realistic
 
-# Print evaluation scorecard
+# Print evaluation scorecard (realistic corpus)
 python -m reviewer.validation --scorecard
 ```
 
