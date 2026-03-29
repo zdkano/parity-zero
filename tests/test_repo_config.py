@@ -176,7 +176,7 @@ class TestLowSignalPaths:
     def test_low_signal_matching(self):
         config = RepoConfig(low_signal_paths=("tests/**", "*.lock"))
         assert config.is_low_signal("tests/test_foo.py")
-        assert config.is_low_signal("package-lock.json") is False  # *.lock not .json
+        assert config.is_low_signal("package-lock.json") is False  # *.lock matches .lock extension, not .json
         assert config.is_low_signal("yarn.lock")
         assert not config.is_low_signal("src/main.py")
 

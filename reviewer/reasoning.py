@@ -245,7 +245,7 @@ def run_reasoning(
         if provider is not None and provider.is_available():
             # Check provider_skip_paths before normal gate evaluation
             changed_paths = ctx.pr_content.paths
-            if not config.is_empty and all(config.is_provider_skip(p) for p in changed_paths) and changed_paths:
+            if changed_paths and not config.is_empty and all(config.is_provider_skip(p) for p in changed_paths):
                 gate_result = ProviderGateResult(
                     should_invoke=False,
                     reasons=["skip: all changed paths match provider_skip_paths config"],
