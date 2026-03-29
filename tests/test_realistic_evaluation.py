@@ -33,6 +33,11 @@ from reviewer.validation import (
     list_realistic_ids,
     get_scenarios_by_tag,
     list_tags,
+    all_scenarios,
+    all_scenario_ids,
+    all_tags,
+    all_scenarios_by_tag,
+    find_scenario,
     run_scenario,
     run_comparison,
     format_comparison_summary,
@@ -752,3 +757,84 @@ class TestSyntheticHarnessRegression:
     def test_get_scenarios_by_tag_still_works(self):
         auth = get_scenarios_by_tag("auth")
         assert len(auth) > 0
+
+
+# ======================================================================
+# Unified corpus helpers
+# ======================================================================
+
+
+class TestUnifiedCorpusHelpers:
+    """Verify that unified helpers search both synthetic and realistic corpora."""
+
+    def test_all_scenarios_includes_both_corpora(self):
+        combined = all_scenarios()
+        assert len(combined) == len(SCENARIOS) + len(REALISTIC_SCENARIOS)
+
+    def test_all_scenario_ids_includes_both(self):
+        ids = all_scenario_ids()
+        assert "auth-sensitive" in ids  # synthetic
+        assert "realistic-missing-auth-route" in ids  # realistic
+
+    def test_all_scenario_ids_correct_count(self):
+        ids = all_scenario_ids()
+        assert len(ids) == len(SCENARIOS) + len(REALISTIC_SCENARIOS)
+
+    def test_find_scenario_finds_synthetic(self):
+        s = find_scenario("auth-sensitive")
+        assert s is not None
+        assert s.id == "auth-sensitive"
+
+    def test_find_scenario_finds_realistic(self):
+        s = find_scenario("realistic-missing-auth-route")
+        assert s is not None
+        assert s.id == "realistic-missing-auth-route"
+
+    def test_find_scenario_returns_none_for_unknown(self):
+        assert find_scenario("nonexistent") is None
+
+    def test_all_tags_includes_realistic_only_tags(self):
+        tags = all_tags()
+        # 'authz' only exists in realistic corpus
+        assert "authz" in tags
+
+    def test_all_tags_includes_synthetic_tags(self):
+        tags = all_tags()
+        assert "auth" in tags
+        assert "secrets" in tags
+
+    def test_all_tags_is_superset_of_synthetic_tags(self):
+        synthetic_tags = set(list_tags())
+        unified_tags = set(all_tags())
+        assert synthetic_tags.issubset(unified_tags)
+
+    def test_all_tags_sorted_unique(self):
+        tags = all_tags()
+        assert tags == sorted(tags)
+        assert len(tags) == len(set(tags))
+
+    def test_all_scenarios_by_tag_returns_both_corpora(self):
+        auth = all_scenarios_by_tag("auth")
+        synthetic_auth = [s for s in auth if not s.id.startswith("realistic-")]
+        realistic_auth = [s for s in auth if s.id.startswith("realistic-")]
+        assert len(synthetic_auth) > 0
+        assert len(realistic_auth) > 0
+
+    def test_all_scenarios_by_tag_realistic_only(self):
+        # 'realistic' tag only exists in realistic corpus
+        matches = all_scenarios_by_tag("realistic")
+        assert len(matches) == len(REALISTIC_SCENARIOS)
+        for s in matches:
+            assert s.id.startswith("realistic-")
+
+    def test_all_scenarios_by_tag_empty_for_unknown(self):
+        assert all_scenarios_by_tag("nonexistent-tag-xyz") == []
+
+    def test_per_corpus_helpers_still_work(self):
+        """Original per-corpus helpers remain functional."""
+        assert len(list_scenario_ids()) == len(SCENARIOS)
+        assert len(list_realistic_ids()) == len(REALISTIC_SCENARIOS)
+        assert get_scenario("auth-sensitive") is not None
+        assert get_realistic_scenario("realistic-missing-auth-route") is not None
+        assert len(get_scenarios_by_tag("auth")) > 0
+        assert len(list_tags()) > 0
