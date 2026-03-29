@@ -29,6 +29,7 @@ parity-zero is in active early development. The reviewer pipeline is functional 
 - internal reviewer traceability (ReviewTrace)
 - PR validation scenario harness
 - **evaluation and benchmarking layer** — 13 curated scenarios, provider comparison, output-quality assertions (ADR-038)
+- **realistic evaluation corpus** — 10 file-backed scenarios for representative PR evaluation, provider comparison, and lightweight scorecard (ADR-039)
 - stable ScanResult JSON contract
 - **real PR file content loading** from workspace checkout
 - **skipped-file awareness** — changed files that are deleted, binary, too large, or unreadable are tracked with path and reason metadata (ADR-036)
@@ -59,7 +60,7 @@ All providers are disabled by default. Provider output is **non-authoritative** 
 # Clone and install
 pip install -r requirements.txt
 
-# Run all tests (~1260 tests)
+# Run all tests (~1420 tests)
 python -m pytest tests/ -v
 
 # Run the reviewer locally with disabled provider
@@ -71,11 +72,17 @@ python -c "from reviewer.action import mock_run; r = mock_run(); print(r['markdo
 # Run validation scenarios
 python -m pytest tests/test_validation_harness.py -v
 
-# Run evaluation summary
+# Run all evaluation scenarios (synthetic + realistic)
 python -m reviewer.validation --summary
 
 # Compare a scenario across provider modes
 python -m reviewer.validation --compare auth-sensitive
+
+# Run only realistic evaluation corpus
+python -m reviewer.validation --realistic
+
+# Print evaluation scorecard (realistic corpus)
+python -m reviewer.validation --scorecard
 ```
 
 See [Getting Started](docs/getting-started.md) for full setup instructions.
