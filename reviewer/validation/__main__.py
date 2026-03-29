@@ -1,8 +1,8 @@
-"""CLI entrypoint for the evaluation harness (ADR-038).
+"""CLI entrypoint for the evaluation harness (ADR-038, ADR-039).
 
 Usage::
 
-    # Run all scenarios
+    # Run all synthetic scenarios
     python -m reviewer.validation
 
     # Run a single scenario
@@ -19,6 +19,15 @@ Usage::
 
     # Print concise evaluation summary for all
     python -m reviewer.validation --summary
+
+    # Run realistic corpus
+    python -m reviewer.validation --realistic
+
+    # Run realistic corpus with scorecard
+    python -m reviewer.validation --scorecard
+
+    # Compare a realistic scenario
+    python -m reviewer.validation --compare realistic-missing-auth-route
 """
 
 from __future__ import annotations
@@ -32,8 +41,14 @@ from reviewer.validation.scenario import (
     list_scenario_ids,
     list_tags,
 )
+from reviewer.validation.realistic import (
+    REALISTIC_SCENARIOS,
+    get_realistic_scenario,
+    list_realistic_ids,
+)
 from reviewer.validation.runner import run_scenario
 from reviewer.validation.comparison import run_comparison, format_comparison_summary
+from reviewer.validation.scorecard import build_scorecard, format_scorecard
 
 
 def _print_result(result) -> bool:
@@ -61,22 +76,13 @@ def _run_all() -> bool:
     return all_passed
 
 
-def _run_one(scenario_id: str) -> bool:
-    """Run a single scenario.  Returns True if passed."""
-    scenario = get_scenario(scenario_id)
-    if scenario is None:
-        print(f"Unknown scenario: {scenario_id}")
-        print(f"Available: {', '.join(list_scenario_ids())}")
-        return False
-    result = run_scenario(scenario)
-    return _print_result(result)
-
-
 def _compare_one(scenario_id: str) -> bool:
     """Compare a scenario across disabled/mock modes."""
-    scenario = get_scenario(scenario_id)
+    scenario = get_scenario(scenario_id) or get_realistic_scenario(scenario_id)
     if scenario is None:
+        all_ids = list_scenario_ids() + list_realistic_ids()
         print(f"Unknown scenario: {scenario_id}")
+        print(f"Available: {', '.join(all_ids)}")
         return False
     comp = run_comparison(scenario)
     print(format_comparison_summary(comp))
@@ -131,6 +137,40 @@ def _print_summary() -> bool:
     return all_passed
 
 
+def _run_realistic() -> bool:
+    """Run all realistic scenarios and print results."""
+    print(f"Running {len(REALISTIC_SCENARIOS)} realistic scenarios...\n")
+    all_passed = True
+    for scenario in REALISTIC_SCENARIOS:
+        result = run_scenario(scenario)
+        if not _print_result(result):
+            all_passed = False
+        print()
+    return all_passed
+
+
+def _print_scorecard(scenarios: list | None = None) -> bool:
+    """Build and print an evaluation scorecard."""
+    corpus = scenarios if scenarios is not None else REALISTIC_SCENARIOS
+    label = "realistic" if scenarios is None else "custom"
+    print(f"Building scorecard for {len(corpus)} {label} scenarios...\n")
+    scorecard = build_scorecard(corpus)
+    print(format_scorecard(scorecard))
+    return scorecard.all_passed
+
+
+def _run_one(scenario_id: str) -> bool:
+    """Run a single scenario.  Returns True if passed."""
+    scenario = get_scenario(scenario_id) or get_realistic_scenario(scenario_id)
+    if scenario is None:
+        all_ids = list_scenario_ids() + list_realistic_ids()
+        print(f"Unknown scenario: {scenario_id}")
+        print(f"Available: {', '.join(all_ids)}")
+        return False
+    result = run_scenario(scenario)
+    return _print_result(result)
+
+
 def main():
     """CLI entrypoint."""
     args = sys.argv[1:]
@@ -155,7 +195,15 @@ def main():
         ok = _compare_one(args[1])
         sys.exit(0 if ok else 1)
 
-    # Single scenario by id
+    if args[0] == "--realistic":
+        ok = _run_realistic()
+        sys.exit(0 if ok else 1)
+
+    if args[0] == "--scorecard":
+        ok = _print_scorecard()
+        sys.exit(0 if ok else 1)
+
+    # Single scenario by id (searches both synthetic and realistic)
     ok = _run_one(args[0])
     sys.exit(0 if ok else 1)
 
