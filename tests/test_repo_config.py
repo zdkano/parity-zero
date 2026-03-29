@@ -258,7 +258,7 @@ class TestScanResultContract:
         scan = ScanResult(
             repo="test/repo",
             pr_number=1,
-            commit_sha="abc123",
+            commit_sha="abc1234def5678",
             ref="main",
             decision=decision,
             risk_score=risk,
