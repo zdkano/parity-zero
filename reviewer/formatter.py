@@ -119,19 +119,6 @@ def format_markdown(
                 lines.append(f"  > 💡 {finding.recommendation}")
             lines.append("")
 
-    # -- Actionable recommendations --
-    recommendations = [
-        (f.title, f.recommendation)
-        for f in result.findings
-        if f.recommendation
-    ]
-    if recommendations:
-        lines.append("### Recommendations")
-        lines.append("")
-        for title, rec in recommendations:
-            lines.append(f"- **{title}:** {rec}")
-        lines.append("")
-
     _append_concerns(lines, concerns)
     _append_observations(lines, observations)
     _append_provider_notes(lines, provider_notes)
@@ -147,8 +134,16 @@ def _append_concerns(
 
     Concerns are contextual observations — not proven findings.  The section
     header and item formatting make this distinction explicit.
+
+    When multiple concerns target the same paths, only the highest-confidence
+    concerns are shown to avoid redundant messaging.
     """
     if not concerns:
+        return
+
+    # Deduplicate concerns that share the same paths — keep highest confidence.
+    shown = _deduplicate_concerns(concerns, max_per_path=2, max_total=5)
+    if not shown:
         return
 
     lines.append("### 🔍 Review Concerns")
@@ -160,7 +155,7 @@ def _append_concerns(
     )
     lines.append("")
 
-    for concern in concerns:
+    for concern in shown:
         confidence_tag = f"confidence: {concern.confidence}"
         lines.append(
             f"- **{concern.title}** (`{concern.category}`, {confidence_tag})"
@@ -170,6 +165,43 @@ def _append_concerns(
             paths_str = ", ".join(f"`{p}`" for p in concern.related_paths[:3])
             lines.append(f"  Related: {paths_str}")
         lines.append("")
+
+
+# Confidence ordering for concern deduplication (higher = more useful).
+_CONFIDENCE_RANK = {"high": 3, "medium": 2, "low": 1}
+
+
+def _deduplicate_concerns(
+    concerns: list[ReviewConcern],
+    max_per_path: int = 2,
+    max_total: int = 5,
+) -> list[ReviewConcern]:
+    """Reduce concern redundancy when many concerns target the same files.
+
+    Keeps at most ``max_per_path`` concerns per unique path set, preferring
+    higher confidence concerns.  Caps total at ``max_total``.
+    """
+    # Group by frozenset of related_paths (or title if no paths).
+    groups: dict[str, list[ReviewConcern]] = {}
+    for c in concerns:
+        key = ",".join(sorted(c.related_paths)) if c.related_paths else c.title
+        groups.setdefault(key, []).append(c)
+
+    # Sort within each group by confidence rank (descending).
+    result: list[ReviewConcern] = []
+    for group in groups.values():
+        sorted_group = sorted(
+            group,
+            key=lambda c: _CONFIDENCE_RANK.get(c.confidence, 0),
+            reverse=True,
+        )
+        result.extend(sorted_group[:max_per_path])
+
+    # Preserve original ordering (stable sort by position in original list).
+    original_order = {id(c): i for i, c in enumerate(concerns)}
+    result.sort(key=lambda c: original_order.get(id(c), 0))
+
+    return result[:max_total]
 
 
 def _append_observations(
@@ -216,8 +248,15 @@ def _append_provider_notes(
     Provider notes are additional security observations from the reasoning
     provider, shown only when they are distinct from existing concerns and
     observations.  They are explicitly non-authoritative.
+
+    Display is capped at 3 notes to keep the output concise.
     """
     if not notes:
+        return
+
+    useful_notes = list(notes)[:_MAX_DISPLAYED_NOTES]
+
+    if not useful_notes:
         return
 
     lines.append("### 💬 Additional Review Notes")
@@ -229,7 +268,7 @@ def _append_provider_notes(
     )
     lines.append("")
 
-    for note in notes[:5]:
+    for note in useful_notes:
         confidence_tag = f"confidence: {note.confidence}"
         title = note.title or note.summary[:60]
         lines.append(f"- **{title}** ({confidence_tag})")
@@ -239,6 +278,10 @@ def _append_provider_notes(
             paths_str = ", ".join(f"`{p}`" for p in note.related_paths[:3])
             lines.append(f"  Related: {paths_str}")
         lines.append("")
+
+
+# Maximum provider notes displayed in markdown output.
+_MAX_DISPLAYED_NOTES = 3
 
 
 def _append_footer(lines: list[str], result: ScanResult) -> None:

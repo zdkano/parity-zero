@@ -246,7 +246,8 @@ class TestMockProvider:
             ],
         )
         resp = provider.reason(req)
-        assert any("3 changed file" in n for n in resp.candidate_notes)
+        # Cross-file interaction note references file count and paths.
+        assert any("3 files" in n for n in resp.candidate_notes)
 
     def test_reason_reflects_plan_context(self):
         provider = MockProvider()
@@ -310,8 +311,9 @@ class TestMockProvider:
         provider = MockProvider()
         req = ReasoningRequest()
         resp = provider.reason(req)
-        assert resp.has_content  # always produces at least file count note
-        assert any("0 changed file" in n for n in resp.candidate_notes)
+        # Empty request produces no notes — correct quiet behavior.
+        assert not resp.has_content
+        assert len(resp.candidate_notes) == 0
 
     def test_implements_provider_interface(self):
         provider = MockProvider()

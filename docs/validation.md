@@ -93,6 +93,9 @@ python -m pytest tests/test_evaluation.py -v
 # Run all realistic evaluation tests
 python -m pytest tests/test_realistic_evaluation.py -v
 
+# Run quality tuning assertions
+python -m pytest tests/test_quality_tuning.py -v
+
 # Run a specific scenario class
 python -m pytest tests/test_validation_harness.py::TestAuthSensitiveScenario -v
 
@@ -244,16 +247,18 @@ The harness supports these assertion types:
 
 ## Quality Expectations
 
-The evaluation layer encodes these practical quality expectations (see `tests/test_evaluation.py` and `tests/test_realistic_evaluation.py`):
+The evaluation layer encodes these practical quality expectations (see `tests/test_evaluation.py`, `tests/test_realistic_evaluation.py`, and `tests/test_quality_tuning.py`):
 
 - **No generic filler** — low-signal scenarios produce no findings, concerns, or observations
 - **No duplicated output** — no duplicate finding title+file pairs
 - **Observations tied to changed paths** — every observation references a file from the PR
-- **Weak-signal scenarios stay quiet** — no provider invocation, no provider notes, minimal output
+- **Observation titles are file-specific** — include the actual file basename
+- **Weak-signal scenarios stay quiet** — no provider invocation, no provider notes, minimal output (< 500 chars)
 - **Provider notes do not become findings** — trust boundary enforced
-- **Provider-enriched observations remain non-authoritative** — trust boundary enforced
+- **Provider notes are non-generic** — metadata restatements are filtered
+- **Provider-enriched observations remain non-authoritative** — trust boundary enforced, single-enrichment cap
 - **Markdown structure remains correct** — correct sections present/absent based on content
-- **Output remains concise** — no-findings scenarios have bounded markdown length
+- **Output remains concise** — no-findings scenarios have bounded markdown length, concerns capped per path
 
 These are **heuristic quality checks**, not scientific benchmarks. They will evolve as the reviewer improves.
 
