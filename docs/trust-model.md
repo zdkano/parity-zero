@@ -136,6 +136,18 @@ The scoring function is deterministic. It does not incorporate provider output, 
 - Control plane dashboard
 - Policy-based review configuration
 
+## Repo Configuration and Trust
+
+The optional `.parity-zero.yml` repo config (ADR-041) customises path-level reviewer behavior (exclusions, low-signal handling, provider-skip). It does **not** change trust semantics:
+
+- Config cannot create or suppress findings
+- Config does not affect scoring (`decision` and `risk_score` derive from findings only)
+- Config does not make provider output authoritative
+- Excluded files are tracked as `SkippedFile` entries for transparency
+- Low-signal and provider-skip paths do not alter the trust level of any output
+
+See [Repo Configuration](repo-config.md) for full details.
+
 ## Backend Persistence and Trust
 
 The backend API persists review results (scan metadata and findings) for later retrieval. This persistence **does not change the trust semantics** of any output:

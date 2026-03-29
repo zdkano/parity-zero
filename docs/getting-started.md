@@ -17,6 +17,7 @@ pip install -r requirements.txt
 
 Dependencies are intentionally minimal:
 - `pydantic` — structured models and JSON contract
+- `pyyaml` — repo-level configuration loading
 - `fastapi` / `uvicorn` — ingestion API stub
 - `pytest` / `httpx` — testing
 
@@ -32,6 +33,31 @@ Dependencies are intentionally minimal:
 | `OPENAI_API_BASE` | *(none)* | Optional base URL for OpenAI-compatible endpoints |
 
 No configuration is required for basic usage. The reviewer defaults to `disabled` provider mode — no API keys needed.
+
+## Repo-Level Configuration (Optional)
+
+parity-zero supports an optional `.parity-zero.yml` file in the repository root for customising reviewer behavior:
+
+```yaml
+# Paths excluded from review (no findings, concerns, or observations)
+exclude_paths:
+  - "vendor/**"
+  - "generated/**"
+
+# Paths with reduced observation generation
+low_signal_paths:
+  - "tests/**"
+  - "*.lock"
+
+# Paths where provider reasoning is skipped
+provider_skip_paths:
+  - "docs/**"
+  - "fixtures/**"
+```
+
+When this file is absent, the reviewer behaves exactly as before. When present but invalid, it logs a warning and falls back to defaults.
+
+See [Repo Configuration](repo-config.md) for full details on supported fields, glob matching, and examples.
 
 ## Running the Reviewer Locally
 
