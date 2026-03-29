@@ -486,10 +486,9 @@ def _suppress_overlapping_notes(
 ) -> list[CandidateNote]:
     """Filter provider notes that overlap heavily with existing context.
 
-    Uses simple keyword overlap to detect redundancy.  This is intentionally
-    lightweight — a heuristic, not a ranking engine.  Notes that share
-    significant keyword overlap with an existing concern, observation, or
-    deterministic finding are suppressed.
+    Uses keyword overlap to detect redundancy, plus content-quality filters
+    to suppress notes that merely restate plan/baseline/memory metadata
+    without adding file-specific security insight.
 
     The remaining notes are capped at ``_MAX_PROVIDER_NOTES``.
 
@@ -510,23 +509,66 @@ def _suppress_overlapping_notes(
         existing_keywords.update(_extract_keywords(f.title))
         existing_keywords.update(_extract_keywords(f.description))
 
-    if not existing_keywords:
-        return notes[:_MAX_PROVIDER_NOTES]
-
     kept: list[CandidateNote] = []
     for note in notes:
+        # Content-quality filter: suppress notes with too-short summaries.
+        if not note.summary or len(note.summary.strip()) < _MIN_NOTE_SUMMARY_LENGTH:
+            continue
+        # Content-quality filter: suppress notes that are metadata
+        # restatements (file count, focus area lists, baseline context).
+        if _is_metadata_restatement(note):
+            continue
         note_keywords = (
             _extract_keywords(note.title) | _extract_keywords(note.summary)
         )
         if not note_keywords:
             continue
-        overlap = note_keywords & existing_keywords
-        overlap_ratio = len(overlap) / len(note_keywords) if note_keywords else 0
-        # Suppress if more than 60% of the note's keywords overlap.
-        if overlap_ratio <= 0.6:
-            kept.append(note)
+        # Skip overlap check if there are no existing keywords.
+        if existing_keywords:
+            overlap = note_keywords & existing_keywords
+            overlap_ratio = len(overlap) / len(note_keywords)
+            # Suppress if more than 60% of the note's keywords overlap.
+            if overlap_ratio > 0.6:
+                continue
+        kept.append(note)
 
     return kept[:_MAX_PROVIDER_NOTES]
+
+
+# Minimum summary length for a provider note to survive suppression.
+_MIN_NOTE_SUMMARY_LENGTH = 15
+
+# Phrases that indicate a note is restating pipeline metadata rather
+# than providing file-specific security insight.
+_METADATA_PHRASES = [
+    "analysed",
+    "analyzed",
+    "changed file(s)",
+    "review plan focuses",
+    "review plan focus",
+    "repository baseline context",
+    "baseline context:",
+    "review memory categories",
+    "memory categories:",
+    "deterministic finding(s) noted",
+    "finding(s) noted as context",
+]
+
+
+def _is_metadata_restatement(note: CandidateNote) -> bool:
+    """Return True if a note merely restates pipeline metadata.
+
+    Catches notes that summarise file counts, restate plan focus areas,
+    baseline frameworks, or memory categories without adding any
+    file-specific security observation.
+    """
+    text = (note.summary or "").lower()
+    title = (note.title or "").lower()
+    combined = f"{title} {text}"
+    for phrase in _METADATA_PHRASES:
+        if phrase in combined:
+            return True
+    return False
 
 
 # Stopwords excluded from keyword extraction.

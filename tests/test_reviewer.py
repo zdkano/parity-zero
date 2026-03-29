@@ -287,17 +287,17 @@ class TestFormatter:
         md = format_markdown(result)
         assert "100/100" in md
 
-    def test_recommendations_section(self):
+    def test_recommendations_inline_with_findings(self):
         findings = [
             _make_finding(title="Issue A", recommendation="Fix A."),
             _make_finding(title="Issue B", recommendation="Fix B."),
         ]
         md = format_markdown(_make_scan_result(findings=findings))
-        assert "### Recommendations" in md
-        assert "**Issue A:** Fix A." in md
-        assert "**Issue B:** Fix B." in md
+        # Recommendations are shown inline with each finding (💡 marker).
+        assert "💡 Fix A." in md
+        assert "💡 Fix B." in md
 
-    def test_no_recommendations_section_when_none(self):
+    def test_no_redundant_recommendations_section(self):
         findings = [_make_finding(recommendation=None)]
         md = format_markdown(_make_scan_result(findings=findings))
         assert "### Recommendations" not in md
@@ -676,9 +676,11 @@ class TestMockRun:
         assert isinstance(output["reasoning_notes"], list)
         assert len(output["reasoning_notes"]) >= 1
 
-    def test_markdown_has_recommendations_section(self):
+    def test_markdown_has_inline_recommendations(self):
         output = mock_run()
-        assert "### Recommendations" in output["markdown"]
+        # Recommendations are shown inline with findings (💡 marker)
+        # rather than in a separate section.
+        assert "💡" in output["markdown"]
 
     def test_json_ingestion_compatible(self):
         """JSON output can be sent to the ingestion API without modification."""

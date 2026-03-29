@@ -132,6 +132,7 @@ def _sensitive_auth_observation(
 ) -> ReviewObservation:
     """Observation for a file that is both sensitive and auth-related."""
     focus = _primary_focus(item, "authentication")
+    basename = _file_basename(item.path)
     patterns_note = ""
     if bundle.repo_auth_patterns:
         patterns = ", ".join(bundle.repo_auth_patterns[:3])
@@ -140,7 +141,7 @@ def _sensitive_auth_observation(
     return ReviewObservation(
         path=item.path,
         focus_area=focus,
-        title="Security boundary in auth-sensitive area",
+        title=f"Auth-sensitive boundary: {basename}",
         summary=(
             f"`{item.path}` sits at an intersection of authentication logic "
             f"and sensitive configuration. Changes here may affect access control "
@@ -159,11 +160,12 @@ def _auth_consistency_observation(
     """Observation for an auth-area file when baseline auth patterns exist."""
     patterns = ", ".join(bundle.repo_auth_patterns[:3])
     focus = _primary_focus(item, "authentication")
+    basename = _file_basename(item.path)
 
     return ReviewObservation(
         path=item.path,
         focus_area=focus,
-        title="Auth flow consistency check warranted",
+        title=f"Auth flow consistency: {basename}",
         summary=(
             f"`{item.path}` modifies authentication-related code in a "
             f"repository using {patterns}. Verify that changes preserve "
@@ -178,11 +180,12 @@ def _auth_consistency_observation(
 def _auth_area_observation(item: ReviewBundleItem) -> ReviewObservation:
     """Observation for an auth-area file without baseline patterns."""
     focus = _primary_focus(item, "authentication")
+    basename = _file_basename(item.path)
 
     return ReviewObservation(
         path=item.path,
         focus_area=focus,
-        title="Auth-related path modified",
+        title=f"Auth-related change: {basename}",
         summary=(
             f"`{item.path}` appears to be in an authentication or "
             f"authorization-related area. Review access control logic "
@@ -201,11 +204,12 @@ def _framework_sensitive_observation(
     """Observation for a sensitive path in a framework-using repo."""
     frameworks = ", ".join(bundle.repo_frameworks[:3])
     focus = _primary_focus(item, "insecure_configuration")
+    basename = _file_basename(item.path)
 
     return ReviewObservation(
         path=item.path,
         focus_area=focus,
-        title="Framework-specific secure defaults",
+        title=f"Framework defaults: {basename} ({frameworks})",
         summary=(
             f"`{item.path}` is a sensitive configuration path in a "
             f"repository using {frameworks}. Check that framework-specific "
@@ -220,11 +224,12 @@ def _framework_sensitive_observation(
 def _sensitive_path_observation(item: ReviewBundleItem) -> ReviewObservation:
     """Observation for a sensitive path without framework context."""
     focus = _primary_focus(item, "insecure_configuration")
+    basename = _file_basename(item.path)
 
     return ReviewObservation(
         path=item.path,
         focus_area=focus,
-        title="Sensitive path modified",
+        title=f"Sensitive path change: {basename}",
         summary=(
             f"`{item.path}` is identified as a sensitive path "
             f"(configuration, deployment, or security-related). "
@@ -240,11 +245,12 @@ def _memory_alignment_observation(item: ReviewBundleItem) -> ReviewObservation:
     """Observation for a file with matching memory context."""
     memory_summary = item.memory_context[0] if item.memory_context else ""
     focus = _primary_focus(item, "")
+    basename = _file_basename(item.path)
 
     return ReviewObservation(
         path=item.path,
         focus_area=focus,
-        title="Recurring review attention area",
+        title=f"Recurring review area: {basename}",
         summary=(
             f"`{item.path}` aligns with prior review history. "
             f"Similar areas have previously warranted scrutiny"
@@ -262,6 +268,10 @@ def _memory_alignment_observation(item: ReviewBundleItem) -> ReviewObservation:
 
 # Maximum characters of provider detail appended during enrichment.
 _MAX_ENRICHMENT_CHARS = 200
+
+# Minimum characters of provider detail required for enrichment.
+# Notes shorter than this are too terse to add meaningful context.
+_MIN_ENRICHMENT_CHARS = 30
 
 # Maximum supplementary observations from provider notes.
 _MAX_SUPPLEMENTARY = 3
@@ -413,8 +423,22 @@ def _enrich_observation(obs: ReviewObservation, note: CandidateNote) -> None:
 
     Appends a hedged, capped addendum to the existing summary.
     Does not replace the original text.  Marks the basis as enriched.
+
+    Skips enrichment when the provider detail is too short or too
+    generic to add meaningful file-specific insight.
     """
     detail = note.summary.strip()
+    # Skip enrichment when detail is too short to be useful.
+    if len(detail) < _MIN_ENRICHMENT_CHARS:
+        return
+    # Skip when detail heavily overlaps with existing summary.
+    obs_kw = _extract_keywords(obs.summary)
+    note_kw = _extract_keywords(detail)
+    if note_kw and obs_kw:
+        overlap = note_kw & obs_kw
+        ratio = len(overlap) / len(note_kw) if note_kw else 0
+        if ratio > 0.6:
+            return
     if len(detail) > _MAX_ENRICHMENT_CHARS:
         detail = detail[:_MAX_ENRICHMENT_CHARS].rsplit(" ", 1)[0] + "…"
 
@@ -469,3 +493,11 @@ def _extract_keywords(text: str) -> set[str]:
 def _primary_focus(item: ReviewBundleItem, default: str) -> str:
     """Return the primary focus area for an item, or a default."""
     return item.focus_areas[0] if item.focus_areas else default
+
+
+def _file_basename(path: str) -> str:
+    """Extract a short file basename from a full path for use in titles."""
+    if not path:
+        return "unknown"
+    parts = path.rsplit("/", 1)
+    return parts[-1] if parts else path
