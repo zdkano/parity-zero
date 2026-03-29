@@ -317,3 +317,43 @@ class TestPathMatching:
 
     def test_exact_match(self):
         assert _matches_any("README.md", ("README.md",))
+
+    # --- Nested segment matching (path suffix) ---
+
+    def test_fixtures_nested(self):
+        assert _matches_any("test/eval/fixtures/data.json", ("fixtures/**",))
+
+    def test_docs_nested(self):
+        assert _matches_any("src/docs/readme.md", ("docs/**",))
+
+    def test_generated_nested(self):
+        assert _matches_any("build/generated/output.py", ("generated/**",))
+
+    def test_vendor_nested(self):
+        assert _matches_any("third_party/vendor/lib.js", ("vendor/**",))
+
+    def test_nested_deep(self):
+        assert _matches_any("a/b/c/vendor/d/e.py", ("vendor/**",))
+
+    def test_nested_no_match(self):
+        assert not _matches_any("src/main.py", ("vendor/**",))
+
+    def test_nested_partial_name_no_match(self):
+        """'vendor' in a filename should not match 'vendor/**'."""
+        assert not _matches_any("src/vendor_utils.py", ("vendor/**",))
+
+
+class TestNestedMatchingAcrossFields:
+    """Nested segment matching applies to all three config fields."""
+
+    def test_exclude_nested(self):
+        config = RepoConfig(exclude_paths=("fixtures/**",))
+        assert config.is_excluded("test/eval/fixtures/data.json")
+
+    def test_low_signal_nested(self):
+        config = RepoConfig(low_signal_paths=("docs/**",))
+        assert config.is_low_signal("src/docs/readme.md")
+
+    def test_provider_skip_nested(self):
+        config = RepoConfig(provider_skip_paths=("generated/**",))
+        assert config.is_provider_skip("build/generated/output.py")

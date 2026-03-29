@@ -47,18 +47,26 @@ All three fields are optional. Omit any field you don't need.
 
 ## How Glob Matching Works
 
-Path patterns use glob-style matching via Python's `fnmatch`:
+Path patterns use glob-style matching via Python's `fnmatch`.  Each pattern is tested against the **full path** and every **path suffix** (successive tails after removing leading segments).
+
+For a path like `test/eval/fixtures/data.json`, the suffixes tried are:
+
+1. `test/eval/fixtures/data.json` (full path)
+2. `eval/fixtures/data.json`
+3. `fixtures/data.json`
+4. `data.json` (basename)
+
+This means a pattern like `fixtures/**` matches both `fixtures/data.json` and `test/eval/fixtures/data.json`.
 
 | Pattern | Matches | Does NOT Match |
 |---|---|---|
-| `vendor/**` | `vendor/lib/foo.py`, `vendor/x.js` | `src/vendor.py` |
-| `docs/**` | `docs/readme.md`, `docs/api/ref.md` | `src/docs.py` |
-| `*.lock` | `yarn.lock`, `packages/package-lock.json` (basename match) | `lockfile.py` |
+| `vendor/**` | `vendor/lib/foo.py`, `third_party/vendor/lib.js` | `src/vendor_utils.py` |
+| `docs/**` | `docs/readme.md`, `src/docs/api/ref.md` | `src/mydocs.py` |
+| `*.lock` | `yarn.lock`, `packages/yarn.lock` | `lockfile.py` |
 | `*.generated.py` | `src/model.generated.py` | `src/model.py` |
 | `tests/**` | `tests/test_auth.py`, `tests/unit/test_x.py` | `src/test_helper.py` |
+| `fixtures/**` | `fixtures/data.json`, `test/eval/fixtures/data.json` | `src/fixtures_helper.py` |
 | `README.md` | `README.md` | `docs/README.md` |
-
-Matching is performed against both the **full path** and the **basename** (filename only). This means `*.lock` matches `deep/nested/yarn.lock`.
 
 ## Field Behavior
 
@@ -198,6 +206,6 @@ These are **intentionally deferred**. The current config shape is narrow and pha
 - **No config precedence / merging** — there is one config source (the YAML file). Environment variables and Action inputs are not merged with config.
 - **No per-path provider selection** — provider_skip_paths is all-or-nothing at the PR level (all paths must match to skip provider entirely).
 - **No wildcard negation** — you cannot express "all tests except integration tests". Use explicit positive patterns.
-- **Basename matching is simple** — `*.lock` matches any file ending in `.lock` regardless of depth, but complex patterns like `**/test_*.py` rely on fnmatch behavior.
+- **Basename matching is simple** — `*.lock` matches any file ending in `.lock` regardless of depth. Complex patterns like `**/test_*.py` rely on fnmatch behavior.
 
 These limitations are expected in the initial implementation and may be addressed in future iterations.

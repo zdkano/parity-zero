@@ -8,7 +8,9 @@ customise reviewer behavior with:
 - **low_signal_paths** — paths reviewable but treated as lower priority.
 - **provider_skip_paths** — paths where live provider reasoning is skipped.
 
-All path matching uses glob-style patterns via :func:`fnmatch.fnmatch`.
+All path matching uses glob-style patterns via :func:`fnmatch.fnmatch`,
+tested against the full path and every path suffix (so ``fixtures/**``
+matches both ``fixtures/data.json`` and ``test/eval/fixtures/data.json``).
 
 When the config file is absent, parity-zero behaves exactly as it does
 without configuration.  When the file is present but invalid, loading
@@ -93,17 +95,29 @@ class RepoConfig:
 def _matches_any(path: str, patterns: tuple[str, ...]) -> bool:
     """Return True if *path* matches at least one glob pattern.
 
-    Matching is performed against both the full path and each path
-    component suffix so that a pattern like ``docs/**`` matches
-    ``docs/readme.md`` and a pattern like ``*.lock`` matches
-    ``packages/yarn.lock``.
+    Matching is performed against the full path and every path-suffix
+    (each successive tail after removing leading segments).  For a path
+    like ``a/b/c/d.py`` the suffixes tried are::
+
+        a/b/c/d.py
+        b/c/d.py
+        c/d.py
+        d.py
+
+    This ensures that a pattern like ``fixtures/**`` matches both
+    ``fixtures/data.json`` (full-path) and
+    ``test/eval/fixtures/data.json`` (nested-segment).  A pattern like
+    ``*.lock`` matches ``yarn.lock`` and ``packages/yarn.lock`` via
+    the basename suffix.
     """
+    if not patterns:
+        return False
+    parts = path.split("/")
     for pattern in patterns:
-        if fnmatch.fnmatch(path, pattern):
-            return True
-        # Also match against the basename for simple patterns.
-        if fnmatch.fnmatch(os.path.basename(path), pattern):
-            return True
+        for i in range(len(parts)):
+            suffix = "/".join(parts[i:])
+            if fnmatch.fnmatch(suffix, pattern):
+                return True
     return False
 
 
