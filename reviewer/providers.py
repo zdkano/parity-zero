@@ -300,20 +300,22 @@ class MockProvider(ReasoningProvider):
                 source="mock",
             ))
 
-        # Cross-file count note.
-        count_summary = (
-            f"Reviewed {request.file_count} changed file(s); consider "
-            f"whether interactions between modified files introduce "
-            f"security-relevant state changes."
-        )
-        notes.append(f"[mock-reasoning] {count_summary}")
-        structured.append(CandidateNote(
-            title=f"Cross-file review ({request.file_count} changed file(s))",
-            summary=count_summary,
-            related_paths=paths,
-            confidence="low",
-            source="mock",
-        ))
+        # Cross-file interaction note — only when multiple files changed.
+        if request.file_count > 1:
+            file_list = ", ".join(paths[:3])
+            count_summary = (
+                f"Changes span {request.file_count} files including {file_list}; "
+                f"consider whether cross-file interactions introduce "
+                f"security-relevant state changes or trust boundary gaps."
+            )
+            notes.append(f"[mock-reasoning] {count_summary}")
+            structured.append(CandidateNote(
+                title=f"Cross-file interaction scope ({file_list})",
+                summary=count_summary,
+                related_paths=paths,
+                confidence="low",
+                source="mock",
+            ))
 
         # Plan context — tied to the first changed file when available.
         if request.has_plan_context:

@@ -185,9 +185,9 @@ class TestMockProviderIntegration:
         result = analyse(ctx, provider=MockProvider())
         mock_notes = [n for n in result.reasoning_notes if "[mock-reasoning]" in n]
         assert len(mock_notes) > 0
-        # Should reflect the rich context
+        # Should reflect file-specific context (path reference)
         notes_text = " ".join(mock_notes)
-        assert "1 changed file" in notes_text
+        assert "src/auth/login.py" in notes_text
 
     def test_mock_provider_reflects_plan_in_notes(self):
         """MockProvider notes should reflect plan focus when present."""

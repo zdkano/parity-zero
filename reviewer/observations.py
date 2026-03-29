@@ -349,13 +349,16 @@ def refine_observations(
     ]
 
     # -- Phase 1: Enrich existing observations with matching notes --
+    # Track enriched observation indices to avoid double-enrichment.
+    enriched_obs_indices: set[int] = set()
     for note_idx, note in enumerate(provider_notes):
         if not note.summary:
             continue
         match_idx = _find_matching_observation(note, refined, obs_by_path)
-        if match_idx is not None:
+        if match_idx is not None and match_idx not in enriched_obs_indices:
             _enrich_observation(refined[match_idx], note)
             used_note_indices.add(note_idx)
+            enriched_obs_indices.add(match_idx)
 
     # -- Phase 2: Create supplementary observations from unmatched notes --
     covered_paths = {o.path for o in refined if o.path}
