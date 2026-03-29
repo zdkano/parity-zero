@@ -41,6 +41,7 @@ from schemas.findings import Finding
 from reviewer.models import PullRequestContext, RepoSecurityProfile, ReviewBundle, ReviewConcern, ReviewMemory, ReviewObservation, ReviewPlan, ReviewTrace
 from reviewer.providers import CandidateNote, DisabledProvider, ReasoningProvider, ReasoningRequest
 from reviewer.provider_gate import ProviderGateResult, evaluate_provider_gate
+from reviewer.repo_config import RepoConfig
 
 # Canonical path analysis helpers live in planner.py (ADR-021).
 # Re-exported here for backward compatibility with existing callers/tests.
@@ -115,6 +116,7 @@ def run_reasoning(
     plan: ReviewPlan | None = None,
     provider: ReasoningProvider | None = None,
     deterministic_findings: list[Finding] | None = None,
+    config: RepoConfig | None = None,
 ) -> ReasoningResult:
     """Run contextual security review against changed files with repo context.
 
@@ -136,6 +138,12 @@ def run_reasoning(
     When the provider is disabled, unavailable, or gated out, the current
     heuristic-based flow runs unchanged.
 
+    When a ``RepoConfig`` is supplied (ADR-041), low-signal and
+    provider-skip path rules are applied:
+    - Observations are suppressed for low-signal paths.
+    - Provider reasoning is skipped when all non-excluded paths are
+      in provider_skip_paths.
+
     Phase 1 behaviour:
     - produces contextual notes from the review plan or baseline overlap
     - surfaces relevant review memory as historical awareness
@@ -153,11 +161,15 @@ def run_reasoning(
             available, its output is integrated as candidate notes.
         deterministic_findings: Optional deterministic findings to include
             as context in the reasoning request.
+        config: An optional ``RepoConfig`` (ADR-041).  Controls
+            low-signal and provider-skip behavior.
 
     Returns:
         A ReasoningResult with contextual notes and (currently empty)
         findings.
     """
+    if config is None:
+        config = RepoConfig()
     # -- Normalise input --
     if isinstance(ctx, dict):
         ctx = PullRequestContext.from_dict(ctx)
@@ -205,6 +217,12 @@ def run_reasoning(
         )
 
         observations = generate_observations(bundle)
+        # -- Low-signal path suppression (ADR-041) --
+        if not config.is_empty:
+            observations = [
+                obs for obs in observations
+                if not config.is_low_signal(obs.path)
+            ]
         trace.observation_count = len(observations)
         trace.entries.append(
             f"generated {trace.concern_count} concern(s), "
@@ -222,10 +240,23 @@ def run_reasoning(
         )
 
         # -- Provider invocation gating (ADR-029) --
+        # -- Provider-skip paths (ADR-041) --
         # -- Provider-backed reasoning (ADR-025, ADR-027) --
         if provider is not None and provider.is_available():
-            gate_result = evaluate_provider_gate(plan, bundle)
-            trace.provider_gate_reasons = list(gate_result.reasons)
+            # Check provider_skip_paths before normal gate evaluation
+            changed_paths = ctx.pr_content.paths
+            if changed_paths and not config.is_empty and all(config.is_provider_skip(p) for p in changed_paths):
+                gate_result = ProviderGateResult(
+                    should_invoke=False,
+                    reasons=["skip: all changed paths match provider_skip_paths config"],
+                )
+                trace.provider_attempted = False
+                trace.provider_gate_decision = "skipped"
+                trace.provider_gate_reasons = list(gate_result.reasons)
+                trace.entries.append("provider gate: skipped (provider_skip_paths config)")
+            else:
+                gate_result = evaluate_provider_gate(plan, bundle)
+                trace.provider_gate_reasons = list(gate_result.reasons)
             if gate_result.should_invoke:
                 trace.provider_attempted = True
                 trace.provider_gate_decision = "invoked"

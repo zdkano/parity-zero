@@ -30,6 +30,7 @@ parity-zero is in active early development. The reviewer pipeline is functional 
 - PR validation scenario harness
 - **evaluation and benchmarking layer** — 13 curated scenarios, provider comparison, output-quality assertions (ADR-038)
 - **realistic evaluation corpus** — 10 file-backed scenarios for representative PR evaluation, provider comparison, and lightweight scorecard (ADR-039)
+- **repo-level configuration** — optional `.parity-zero.yml` for path exclusions, low-signal paths, and provider-skip paths (ADR-041)
 - stable ScanResult JSON contract
 - **real PR file content loading** from workspace checkout
 - **skipped-file awareness** — changed files that are deleted, binary, too large, or unreadable are tracked with path and reason metadata (ADR-036)
@@ -137,6 +138,7 @@ See [Backend Getting Started](docs/backend-getting-started.md) and [API Referenc
 | [Getting Started](docs/getting-started.md) | Installation, configuration, running locally |
 | [Backend Getting Started](docs/backend-getting-started.md) | Backend setup, storage, auth, local testing |
 | [API Reference](docs/api.md) | Endpoints, request/response shapes, auth, examples |
+| [Repo Configuration](docs/repo-config.md) | Optional `.parity-zero.yml` for path exclusions and signal tuning |
 | [Trust Model](docs/trust-model.md) | What outputs mean, what is authoritative, what is not |
 | [GitHub Action Setup](docs/github-action-setup.md) | Workflow YAML examples, secrets, permissions, backend integration |
 | [Validation Harness](docs/validation.md) | Scenario-based testing, evaluation, and provider comparison |

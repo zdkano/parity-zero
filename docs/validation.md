@@ -291,3 +291,9 @@ The following are intentionally **not** part of the current harness:
 - **Quality assertions** — current heuristics are starting points that will evolve as the reviewer improves
 
 These may be added in future phases as the reviewer pipeline matures.
+
+## Repo Config Interaction
+
+The validation harness runs scenarios without a `.parity-zero.yml` config file by default. This ensures baseline behavior is validated without config influence. Config-aware scenarios can be tested separately by passing a `RepoConfig` to the engine's `analyse()` function — see `tests/test_repo_config.py` for examples of config-aware testing.
+
+Config behavior (ADR-041) does not affect trust boundary invariants — the harness continues to enforce that provider output never creates findings and that scoring is deterministic, regardless of config.

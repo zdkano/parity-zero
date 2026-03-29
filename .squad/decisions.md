@@ -2092,3 +2092,84 @@ With the realistic evaluation corpus and comparison layer in place (ADR-039), pr
 - **Some quality rules remain heuristic** — metadata phrase list, keyword overlap thresholds may need refinement.
 - **Richer ranking/reranking of provider notes remains future work** — current approach is suppression-based.
 - **Concern de-duplication could be done at generation time** — kept at display layer for now to avoid disrupting existing logic.
+
+## ADR-041: Repo-level configuration file for path exclusion and signal tuning
+
+**Date:** 2026-03-29
+
+### Decision
+
+Introduce an optional `.parity-zero.yml` repo-level configuration file supporting three path-control fields: `exclude_paths`, `low_signal_paths`, and `provider_skip_paths`. The config shape is intentionally narrow but extendable for future settings.
+
+### Context
+
+As parity-zero reviews real repositories, different repos need different path-level controls:
+- Vendored/generated code should not produce findings or consume provider resources
+- Test files and lock files may produce noisy observations without proportional security value
+- Documentation and fixture files rarely benefit from live provider reasoning
+
+Without repo-level config, every file changed in a PR receives equal review treatment. This produces noise for repos with large non-code or low-signal file areas.
+
+### What changed
+
+#### New module: `reviewer/repo_config.py`
+- `RepoConfig` frozen dataclass with `exclude_paths`, `low_signal_paths`, `provider_skip_paths` as tuples of glob strings
+- `load_config(repo_root)` — loads `.parity-zero.yml` from repo root using `yaml.safe_load`; returns empty config when file is absent
+- `load_config_from_text(text)` — convenience loader for testing
+- Strict validation: rejects unknown keys, non-list values, empty strings; logs warning and falls back to empty config on any invalid input
+- `filter_excluded_paths(file_contents, config)` — removes excluded files and returns excluded path list
+- `all_provider_skip(paths, config)` — checks if all paths match provider_skip_paths
+- `_matches_any(path, patterns)` — glob matching against full path and basename via `fnmatch`
+
+#### Pipeline integration
+- **`engine.py`**: `analyse()` accepts optional `config` parameter. Applies `exclude_paths` before analysis — excluded files are removed from `file_contents` and tracked as `SkippedFile(reason="config_excluded")`. Passes config to reasoning layer.
+- **`reasoning.py`**: `run_reasoning()` accepts optional `config`. Suppresses observations for `low_signal_paths`. Short-circuits provider gate when all changed paths match `provider_skip_paths`.
+- **`action.py`**: Loads config from `GITHUB_WORKSPACE` at pipeline start, passes to `analyse()`.
+
+#### Dependencies
+- Added `pyyaml>=6.0,<7.0` to `requirements.txt`.
+
+#### Tests (`tests/test_repo_config.py`)
+- Config loading (valid, partial, empty YAML, from text)
+- No-op when file absent (empty config, no effect on analysis)
+- Invalid config handling (non-dict, unknown keys, wrong types, malformed YAML)
+- `exclude_paths` behavior (glob matching, filtering, excluded files produce no findings, tracked as skipped)
+- `low_signal_paths` behavior (observation suppression)
+- `provider_skip_paths` behavior (matching, all_provider_skip logic)
+- Trust boundary preservation (config never creates findings, never affects scoring)
+- ScanResult contract unchanged
+- Scoring unchanged with and without config
+
+#### Documentation
+- New `docs/repo-config.md` — dedicated config documentation with field semantics, glob matching, examples, limitations
+- Updated `README.md` — mentions repo config in status and docs table
+- Updated `docs/getting-started.md` — config file section with example
+- Updated `docs/github-action-setup.md` — `config_excluded` skip reason in table
+- Updated `docs/trust-model.md` — config does not affect trust boundaries
+- Updated `docs/validation.md` — config interaction with harness
+
+### What did NOT change
+- **ScanResult JSON contract** — unchanged
+- **Scoring model** — unchanged (findings-only, deterministic)
+- **Trust boundaries** — unchanged (provider output remains non-authoritative)
+- **Finding categories** — unchanged
+- **Deterministic checks** — still run on all non-excluded files
+- **Provider trust level** — unchanged
+- **Validation harness behavior** — scenarios run without config by default
+
+### Design decisions
+- **YAML over TOML/JSON** — YAML is familiar, widely used for CI/repo configs, supports comments, and aligns with GitHub Actions ecosystem.
+- **Strict unknown-key rejection** — prevents silent misconfiguration from typos. Invalid config falls back to empty rather than partial application.
+- **Frozen dataclass** — config is immutable after loading, preventing accidental mutation during pipeline execution.
+- **Basename matching** — `*.lock` matches `deep/path/yarn.lock` via basename fallback, which is practical for common patterns.
+- **exclude_paths tracks as SkippedFile** — excluded files remain visible in skipped-file metadata for transparency rather than being silently dropped.
+- **Low-signal suppresses observations only** — deterministic checks still run on low-signal paths because real secrets in tests should still be caught.
+- **Provider-skip is all-or-nothing at PR level** — if all changed paths match, provider is skipped entirely. Mixed PRs still invoke provider for non-skip files.
+
+### Deferred concerns
+- **Finding suppression remains deferred** — config cannot suppress specific finding types. This avoids premature policy complexity.
+- **Richer policy/config remains deferred** — focus paths, repo criticality, provider policies, trust settings may be added later to the same file.
+- **Config precedence/merging is simple** — one config source (the YAML file), no merging with env vars or Action inputs.
+- **Per-path provider control** — provider_skip_paths is PR-level, not per-file within provider invocation.
+- **Wildcard negation** — no exclusion-from-exclusion patterns (e.g. "all tests except integration tests").
+- **Config validation could be stricter** — e.g. warning on redundant patterns, detecting unreachable globs. Kept simple for Phase 1.

@@ -49,6 +49,7 @@ When a changed file cannot be loaded, the reviewer records it as a `SkippedFile`
 | `binary` | File is not valid UTF-8 |
 | `too_large` | File exceeds 1 MB size limit |
 | `unreadable` | OS-level read error |
+| `config_excluded` | File matches `exclude_paths` in `.parity-zero.yml` (ADR-041) |
 
 Skipped files are:
 - **Logged** in the workflow output with path and reason

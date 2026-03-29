@@ -35,6 +35,7 @@ from reviewer.github_runtime import (
 )
 from reviewer.models import PRContent, SkippedFile
 from reviewer.provider_config import resolve_provider
+from reviewer.repo_config import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -206,8 +207,11 @@ def run() -> None:
 
     pr_content = PRContent.from_dict(file_contents, skipped=skipped_files)
 
+    # Load repo-level config (ADR-041)
+    config = load_config(workspace)
+
     provider = resolve_provider()
-    analysis = analyse(pr_content, provider=provider)
+    analysis = analyse(pr_content, provider=provider, config=config)
 
     decision, risk_score = derive_decision_and_risk(analysis.findings)
 
