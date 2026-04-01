@@ -2253,3 +2253,61 @@ New endpoints and CRUD resources are security-relevant: they create object-acces
 - **Provider-backed findings remain deferred** — the gate opens more readily, but provider output still does not create findings.
 - **Further gating refinement may be needed** — some patterns may produce false positives for internal utilities or test helpers that use route-like patterns.
 - **Deterministic endpoint checks remain separate** — this change adds review triggering, not deterministic security rules for endpoints.
+
+---
+
+## ADR-043: Bounded code evidence in provider requests
+
+**Status:** Accepted
+**Date:** 2026-04-01
+**Phase:** 1
+
+### Context
+
+Provider-backed review previously received primarily metadata about changed files — file paths, review reasons, focus areas, and existing concerns/observations. The actual file content available in `ReviewBundleItem.content` was not included in `ReasoningRequest` or the formatted user prompt. This caused vague, stereotype-driven provider output based on file names rather than code evidence (e.g., generic validation concerns for anything in a `routes/` directory).
+
+### Decision
+
+Provider requests now include bounded code evidence from `ReviewBundle` items via a new `review_targets` field on `ReasoningRequest`. Each review target carries:
+- file path
+- review reason and focus areas
+- bounded code excerpt (max 1500 chars per file)
+- related changed paths (when present)
+- memory context and baseline context (when present)
+
+Evidence is **intentionally bounded and prioritized**:
+- Maximum 8 review targets per request
+- Items prioritized by review reason: `sensitive_auth` > `api_surface` > `auth_area` > `sensitive_path` > `changed_file`
+- Large files truncated to excerpt limit with `[truncated]` marker
+
+The formatted user prompt now includes a `REVIEW TARGETS` section with code blocks and per-file metadata. The system prompt instructs the provider to base observations on actual code evidence and avoid vague path-based speculation.
+
+### Consequences
+
+**Unchanged:**
+- **ScanResult JSON contract** — unchanged
+- **Scoring model** — unchanged (findings-only, deterministic)
+- **Trust boundaries** — unchanged (provider output remains non-authoritative candidate material)
+- **Finding categories** — unchanged
+- **Provider gate logic** — unchanged
+- **Deterministic checks** — unchanged
+
+**Changed:**
+- `ReasoningRequest` gains a `review_targets` field with structured code evidence
+- `build_reasoning_request()` builds prioritized, bounded review targets from ReviewBundle
+- `_format_user_prompt()` renders a `REVIEW TARGETS` section with code blocks
+- `_SYSTEM_PROMPT` instructs provider to use code evidence and avoid vague path-based observations
+
+### Design decisions
+- **Evidence-first over metadata-first prompting** — provider sees actual code, not just file names. This reduces vague output.
+- **Bounded by design** — max 8 targets, max 1500 chars per excerpt. No complex token optimizer needed yet.
+- **Priority-based selection** — security-relevant files (auth, sensitive, API surface) are selected before generic changed files.
+- **ReviewBundle as evidence source** — reuses existing structured evidence rather than building a new data path.
+- **Additive change** — the `changed_files_summary` field is preserved for backward compatibility; `review_targets` is a new addition.
+
+### Deferred concerns
+- **Diff-hunk-specific prompting** — currently sends file content, not diff hunks. Hunk-based excerpts may improve precision later.
+- **Richer token budgeting** — current bounding is simple (char limit). Dynamic token budgeting across targets remains future work.
+- **Provider-backed findings remain deferred** — evidence improvement does not change the trust boundary.
+- **Larger multi-file semantic reasoning** — cross-file analysis with evidence remains future work.
+- **Evidence quality metrics** — measuring whether evidence improves provider output quality is not automated yet.
