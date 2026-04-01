@@ -56,6 +56,11 @@ from reviewer.planner import (  # noqa: F401
 from reviewer.bundle import build_review_bundle
 from reviewer.observations import generate_observations, refine_observations
 from reviewer.prompt_builder import build_reasoning_request
+from reviewer.provider_review import (
+    ProviderReview,
+    ProviderReviewItem,
+    parse_and_validate_provider_review,
+)
 
 
 @dataclass
@@ -104,6 +109,7 @@ class ReasoningResult:
     concerns: list[ReviewConcern] = field(default_factory=list)
     observations: list[ReviewObservation] = field(default_factory=list)
     provider_notes: list[CandidateNote] = field(default_factory=list)
+    provider_review: ProviderReview | None = None
     bundle: ReviewBundle | None = None
     reasoning_request: ReasoningRequest | None = None
     provider_name: str = ""
@@ -196,6 +202,7 @@ def run_reasoning(
     concerns: list[ReviewConcern] = []
     observations: list[ReviewObservation] = []
     provider_notes: list[CandidateNote] = []
+    provider_review: ProviderReview | None = None
     bundle: ReviewBundle | None = None
     reasoning_request: ReasoningRequest | None = None
     provider_name: str = ""
@@ -241,7 +248,7 @@ def run_reasoning(
 
         # -- Provider invocation gating (ADR-029) --
         # -- Provider-skip paths (ADR-041) --
-        # -- Provider-backed reasoning (ADR-025, ADR-027) --
+        # -- Provider-backed reasoning (ADR-025, ADR-027, ADR-044) --
         if provider is not None and provider.is_available():
             # Check provider_skip_paths before normal gate evaluation
             changed_paths = ctx.pr_content.paths
@@ -265,6 +272,18 @@ def run_reasoning(
                 response = provider.reason(reasoning_request)
                 provider_name = response.provider_name
                 trace.provider_name = provider_name
+
+                # -- Parse structured provider review output (ADR-044) --
+                if response.structured_review_json:
+                    provider_review = parse_and_validate_provider_review(
+                        response.structured_review_json,
+                        provider_name=provider_name,
+                    )
+                    trace.entries.append(
+                        f"provider review: {provider_review.raw_item_count} raw, "
+                        f"{provider_review.item_count} validated, "
+                        f"{provider_review.discarded_count} discarded"
+                    )
 
                 raw_count = len(response.structured_notes)
                 trace.provider_notes_returned = raw_count
@@ -318,6 +337,7 @@ def run_reasoning(
     return ReasoningResult(
         findings=[], notes=notes, concerns=concerns,
         observations=observations, provider_notes=provider_notes,
+        provider_review=provider_review,
         bundle=bundle,
         reasoning_request=reasoning_request,
         provider_name=provider_name,

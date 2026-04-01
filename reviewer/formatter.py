@@ -14,6 +14,11 @@ Optionally includes provider candidate notes (ADR-027) — additional
 security-relevant observations from the reasoning provider, shown only
 when distinct from existing concerns and observations.
 
+Optionally includes structured provider review items (ADR-044) — the
+primary non-authoritative review surface, driven by provider-first
+structured review output.  When present, these are shown as the main
+provider-driven review section.
+
 Design goals (from team.md):
   - clear, practical, and low-noise
   - actionable recommendations
@@ -26,6 +31,7 @@ ScanResult remains the authoritative system contract.
 from __future__ import annotations
 
 from reviewer.models import ReviewConcern, ReviewObservation
+from reviewer.provider_review import ProviderReview, ProviderReviewItem
 from reviewer.providers import CandidateNote
 from schemas.findings import Decision, ScanResult, Severity
 
@@ -48,6 +54,7 @@ def format_markdown(
     concerns: list[ReviewConcern] | None = None,
     observations: list[ReviewObservation] | None = None,
     provider_notes: list[CandidateNote] | None = None,
+    provider_review: ProviderReview | None = None,
 ) -> str:
     """Render a ScanResult as a markdown PR summary.
 
@@ -63,6 +70,9 @@ def format_markdown(
         provider_notes: Optional normalized candidate notes from the
             reasoning provider, shown in a distinct section when they
             add value beyond concerns and observations.
+        provider_review: Optional structured provider review output
+            (ADR-044).  When present, this is the primary non-authoritative
+            review section, replacing the legacy provider notes section.
 
     Returns:
         A markdown string suitable for a GitHub PR comment.
@@ -84,9 +94,10 @@ def format_markdown(
     if total == 0:
         lines.append("No security findings identified in this change.")
         lines.append("")
+        _append_provider_review(lines, provider_review)
         _append_concerns(lines, concerns)
         _append_observations(lines, observations)
-        _append_provider_notes(lines, provider_notes)
+        _append_provider_notes(lines, provider_notes, provider_review)
         _append_footer(lines, result)
         return "\n".join(lines)
 
@@ -119,11 +130,65 @@ def format_markdown(
                 lines.append(f"  > 💡 {finding.recommendation}")
             lines.append("")
 
+    _append_provider_review(lines, provider_review)
     _append_concerns(lines, concerns)
     _append_observations(lines, observations)
-    _append_provider_notes(lines, provider_notes)
+    _append_provider_notes(lines, provider_notes, provider_review)
     _append_footer(lines, result)
     return "\n".join(lines)
+
+
+def _append_provider_review(
+    lines: list[str],
+    provider_review: ProviderReview | None,
+) -> None:
+    """Append structured provider review items as the primary review section.
+
+    Provider review items are the primary non-authoritative review surface
+    (ADR-044).  They are shown before concerns and observations because
+    they represent the provider's structured security review of the actual
+    changed code.
+
+    Items are clearly marked as non-authoritative candidate material.
+    """
+    if not provider_review or not provider_review.has_items:
+        return
+
+    # Show up to 5 items for conciseness.
+    shown = provider_review.items[:5]
+
+    lines.append("### 🤖 Provider Security Review")
+    lines.append("")
+    lines.append(
+        "*Structured review from the reasoning provider — these are "
+        "candidate observations based on the changed code.  They are "
+        "not proven findings and do not affect the decision or risk score.*"
+    )
+    lines.append("")
+
+    _KIND_ICONS = {
+        "candidate_finding": "🔎",
+        "candidate_observation": "👁️",
+        "review_attention": "⚡",
+    }
+
+    for item in shown:
+        icon = _KIND_ICONS.get(item.kind, "📝")
+        confidence_tag = f"confidence: {item.confidence}"
+        category_tag = f", `{item.category}`" if item.category else ""
+        lines.append(
+            f"- {icon} **{item.title}** ({confidence_tag}{category_tag})"
+        )
+        lines.append(f"  {item.summary}")
+        if item.evidence:
+            evidence_short = item.evidence[:200]
+            if len(item.evidence) > 200:
+                evidence_short = evidence_short.rsplit(" ", 1)[0] + "…"
+            lines.append(f"  > Evidence: {evidence_short}")
+        if item.paths:
+            paths_str = ", ".join(f"`{p}`" for p in item.paths[:3])
+            lines.append(f"  Files: {paths_str}")
+        lines.append("")
 
 
 def _append_concerns(
@@ -242,6 +307,7 @@ def _append_observations(
 def _append_provider_notes(
     lines: list[str],
     notes: list[CandidateNote] | None,
+    provider_review: ProviderReview | None = None,
 ) -> None:
     """Append provider candidate notes as a clearly separated section.
 
@@ -249,8 +315,15 @@ def _append_provider_notes(
     provider, shown only when they are distinct from existing concerns and
     observations.  They are explicitly non-authoritative.
 
+    When structured provider review items (ADR-044) are present and non-empty,
+    the legacy provider notes section is suppressed to avoid redundancy.
+
     Display is capped at 3 notes to keep the output concise.
     """
+    # When structured provider review is present, skip legacy notes.
+    if provider_review and provider_review.has_items:
+        return
+
     if not notes:
         return
 
