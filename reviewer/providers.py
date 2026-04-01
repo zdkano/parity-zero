@@ -480,6 +480,34 @@ _SYSTEM_PROMPT = (
 )
 
 
+_EXTENSION_LANGUAGE_MAP: dict[str, str] = {
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".jsx": "javascript",
+    ".tsx": "typescript",
+    ".rb": "ruby",
+    ".go": "go",
+    ".rs": "rust",
+    ".java": "java",
+    ".yml": "yaml",
+    ".yaml": "yaml",
+    ".json": "json",
+    ".sh": "bash",
+    ".cs": "csharp",
+    ".php": "php",
+}
+
+
+def _infer_language(path: str) -> str:
+    """Infer a code-block language hint from the file extension."""
+    dot = path.rfind(".")
+    if dot == -1:
+        return ""
+    ext = path[dot:].lower()
+    return _EXTENSION_LANGUAGE_MAP.get(ext, "")
+
+
 def _format_user_prompt(request: ReasoningRequest) -> str:
     """Format a ReasoningRequest into a user prompt for the model.
 
@@ -522,7 +550,8 @@ def _format_user_prompt(request: ReasoningRequest) -> str:
             if t.get("baseline_context"):
                 block_lines.append(f"Baseline context: {t['baseline_context']}")
             if t.get("code_excerpt"):
-                block_lines.append(f"Code:\n```\n{t['code_excerpt']}\n```")
+                lang = _infer_language(t.get("path", ""))
+                block_lines.append(f"Code:\n```{lang}\n{t['code_excerpt']}\n```")
             target_blocks.append("\n".join(block_lines))
         sections.append(
             "REVIEW TARGETS — code evidence for review (comment only when "

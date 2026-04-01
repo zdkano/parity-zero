@@ -342,7 +342,12 @@ class TestReviewTargetPrioritization:
         bundle = _make_bundle(items=items)
         targets = _build_review_targets(bundle)
         assert len(targets) <= _MAX_REVIEW_TARGETS
+        # Highest priority item is first even after truncation
         assert targets[0]["path"] == "auth/critical.py"
+        assert targets[0]["reason"] == "sensitive_auth"
+        # All remaining are changed_file (lower priority)
+        for t in targets[1:]:
+            assert t["reason"] == "changed_file"
 
 
 # ======================================================================
