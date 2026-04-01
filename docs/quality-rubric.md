@@ -78,6 +78,8 @@ Provider notes should add file-specific security insight, not restate pipeline m
 - Baseline context restatements ("Repository baseline context: Y")
 - Memory category restatements ("Review memory categories: Z")
 
+Provider requests now include bounded code evidence from `ReviewBundle` items (ADR-043). This means the provider sees actual changed code for the most security-relevant files, not just file paths and metadata. Observations should be grounded in the code evidence provided.
+
 ### 9. Markdown Structure Is Correct
 
 - The "Security Review" header is always present.
