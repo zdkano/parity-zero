@@ -262,6 +262,18 @@ The evaluation layer encodes these practical quality expectations (see `tests/te
 
 These are **heuristic quality checks**, not scientific benchmarks. They will evolve as the reviewer improves.
 
+### API Surface Expansion Coverage (ADR-042)
+
+Dedicated test coverage in `tests/test_api_surface_review.py` validates that:
+
+- **New routes/endpoints trigger review interest** — path-based and content-based detection
+- **CRUD resource stacks trigger provider invocation** — gate opens for API surface expansion
+- **Concerns and observations are generated** — authorization-focused, non-authoritative
+- **Low-signal changes remain quiet** — docs, tests, lockfiles, plain utilities unaffected
+- **Trust boundaries hold** — no findings from provider, no scoring change, ScanResult unchanged
+- **Config exclusions still work** — provider-skip and exclude paths suppress correctly
+- **Mixed scenarios work** — API surface with secrets, with memory, with auth patterns
+
 ## Trust Boundary Invariants
 
 Every scenario with `no_trust_boundary_violations=True` (the default) verifies:

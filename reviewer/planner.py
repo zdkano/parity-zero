@@ -61,6 +61,38 @@ _AUTH_PATH_SEGMENTS: list[str] = [
     "acl",
 ]
 
+# -- API surface path segments indicating route/endpoint/controller areas --
+_API_SURFACE_PATH_SEGMENTS: list[str] = [
+    "routes",
+    "controllers",
+    "handlers",
+    "endpoints",
+    "views",
+    "api",
+    "routers",
+    "resources",
+]
+
+# -- Content patterns indicating route/endpoint registration --
+import re as _re
+
+_ROUTE_CONTENT_PATTERNS: list[_re.Pattern[str]] = [
+    # Python decorators: @app.route, @router.get, @app.post, etc.
+    _re.compile(r"@\w+\.(route|get|post|put|patch|delete|head|options)\s*\("),
+    # Express/Node.js: router.get, app.post, etc.
+    _re.compile(r"\b(?:router|app)\.(get|post|put|patch|delete|all|use)\s*\("),
+    # FastAPI/Flask: APIRouter(), Blueprint()
+    _re.compile(r"\b(?:APIRouter|Blueprint)\s*\("),
+    # Versioned API paths: /v1/, /v2/, /api/
+    _re.compile(r"""['"/](?:v\d+|api)/"""),
+    # Auth middleware references in route context
+    _re.compile(r"\b(?:authenticate|require_auth|auth_required|login_required|protect|guard|authorized)\b"),
+    # CRUD resource patterns: create, read, update, delete with resource
+    _re.compile(r"\bdef\s+(?:create|read|update|delete|list|get|post|put|patch)_\w+"),
+    # Class-based views / resource controllers
+    _re.compile(r"\bclass\s+\w+(?:Controller|Resource|View|Handler|Router)\b"),
+]
+
 
 def build_review_plan(ctx: PullRequestContext) -> ReviewPlan:
     """Build a structured review plan from pull request context.
@@ -79,6 +111,7 @@ def build_review_plan(ctx: PullRequestContext) -> ReviewPlan:
         A ReviewPlan capturing review focus and guidance.
     """
     changed_paths = ctx.pr_content.paths
+    file_contents = ctx.pr_content.to_dict()
     plan = ReviewPlan()
 
     if not changed_paths:
@@ -87,6 +120,9 @@ def build_review_plan(ctx: PullRequestContext) -> ReviewPlan:
 
     # -- Path-based focus --
     _apply_path_focus(plan, changed_paths, ctx.baseline_profile)
+
+    # -- API surface expansion detection (ADR-042) --
+    _apply_api_surface_focus(plan, changed_paths, file_contents)
 
     # -- Baseline context --
     if ctx.baseline_profile is not None:
@@ -162,6 +198,78 @@ def _add_path_focus_areas(plan: ReviewPlan, paths: list[str]) -> None:
 
 
 # ======================================================================
+# API surface expansion detection (ADR-042)
+# ======================================================================
+
+
+def _apply_api_surface_focus(
+    plan: ReviewPlan,
+    changed_paths: list[str],
+    file_contents: dict[str, str],
+) -> None:
+    """Detect API surface expansion from new routes, endpoints, CRUD resources.
+
+    This is a targeted heuristic: it checks changed file paths for
+    route/controller/handler directory placement AND file content for
+    route registration patterns.  Both path-based and content-based
+    signals are combined.
+
+    When API surface expansion is detected, the plan receives:
+    - ``api_surface_expansion`` review flag
+    - ``api_surface_paths`` in sensitive_paths_touched (if not already)
+    - authentication/authorization focus areas (if not already present)
+    - reviewer guidance about the new API surface
+    """
+    api_paths = api_surface_path_overlap(changed_paths)
+    content_paths = _detect_route_content_signals(file_contents)
+    all_api_paths = sorted(set(api_paths) | set(content_paths))
+
+    if not all_api_paths:
+        return
+
+    plan.review_flags.append("api_surface_expansion")
+
+    # Add API surface paths to sensitive paths (they are security-relevant)
+    for p in all_api_paths:
+        if p not in plan.sensitive_paths_touched:
+            plan.sensitive_paths_touched.append(p)
+
+    # Ensure auth-related focus areas are present for API surface changes
+    if "authentication" not in plan.focus_areas:
+        plan.focus_areas.append("authentication")
+    if "authorization" not in plan.focus_areas:
+        plan.focus_areas.append("authorization")
+
+
+def api_surface_path_overlap(changed_paths: list[str]) -> list[str]:
+    """Return changed paths in API surface areas (routes, controllers, etc.)."""
+    api_paths: list[str] = []
+    for path in changed_paths:
+        segments = path.lower().split("/")
+        if any(seg in _API_SURFACE_PATH_SEGMENTS for seg in segments):
+            api_paths.append(path)
+    return api_paths
+
+
+def _detect_route_content_signals(file_contents: dict[str, str]) -> list[str]:
+    """Return paths whose content contains route/endpoint registration patterns."""
+    matched_paths: list[str] = []
+    for path, content in file_contents.items():
+        if not content:
+            continue
+        # Skip obviously non-code files
+        ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+        if ext in ("md", "txt", "json", "yml", "yaml", "lock", "csv", "svg",
+                    "png", "jpg", "gif", "ico"):
+            continue
+        for pattern in _ROUTE_CONTENT_PATTERNS:
+            if pattern.search(content):
+                matched_paths.append(path)
+                break
+    return matched_paths
+
+
+# ======================================================================
 # Baseline context application
 # ======================================================================
 
@@ -225,6 +333,13 @@ def _generate_guidance(plan: ReviewPlan) -> None:
         plan.reviewer_guidance.append(
             "PR modifies auth-related path(s); "
             "verify access control logic remains correct."
+        )
+
+    if "api_surface_expansion" in plan.review_flags:
+        plan.reviewer_guidance.append(
+            "PR introduces or modifies API surface (routes, endpoints, "
+            "controllers, or CRUD resources). Verify authentication, "
+            "authorization, and object-level access control."
         )
 
     if plan.auth_pattern_context:
@@ -484,6 +599,29 @@ def generate_concerns(
             related_paths=list(plan.sensitive_paths_touched[:_MAX_CONCERN_CONTEXT_ITEMS]),
         ))
 
+    # -- API surface expansion concern (ADR-042) --
+    if "api_surface_expansion" in plan.review_flags:
+        api_paths = [
+            p for p in plan.sensitive_paths_touched
+            if _is_api_surface_path(p) or _path_has_route_content(p, ctx.pr_content.to_dict())
+        ]
+        if not api_paths:
+            # Fallback: use all sensitive paths from plan
+            api_paths = list(plan.sensitive_paths_touched)
+        concerns.append(ReviewConcern(
+            category="authorization",
+            title="New API surface or CRUD resource",
+            summary=(
+                "This PR introduces or modifies API endpoints, routes, "
+                "or CRUD resources. Verify that authentication is enforced, "
+                "object-level authorization is consistent across read/update/"
+                "delete flows, and list/query paths do not expose cross-user data."
+            ),
+            confidence="medium",
+            basis="api_surface_expansion",
+            related_paths=api_paths[:_MAX_CONCERN_CONTEXT_ITEMS],
+        ))
+
     return concerns
 
 
@@ -505,3 +643,20 @@ def _paths_for_memory_categories(
         if p_cats & relevant_cats:
             result.append(p)
     return result
+
+
+def _is_api_surface_path(path: str) -> bool:
+    """Check if a path is in an API surface area by path segments."""
+    segments = path.lower().split("/")
+    return any(seg in _API_SURFACE_PATH_SEGMENTS for seg in segments)
+
+
+def _path_has_route_content(path: str, file_contents: dict[str, str]) -> bool:
+    """Check if a path's content contains route registration patterns."""
+    content = file_contents.get(path, "")
+    if not content:
+        return False
+    for pattern in _ROUTE_CONTENT_PATTERNS:
+        if pattern.search(content):
+            return True
+    return False
