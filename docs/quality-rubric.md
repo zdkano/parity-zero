@@ -95,6 +95,7 @@ Running the same scenario twice should produce identical findings. Running with 
 ### 11. Provider Gate Behaves Correctly
 
 - Auth-sensitive, memory-influenced, and high-context PRs should invoke the gate.
+- **API surface expansion PRs** (new routes, endpoints, controllers, CRUD resources) should invoke the gate.
 - Low-signal PRs (docs, tests, refactoring) should skip the gate.
 - The gate should not invoke on context-free PRs even when provider mode is "mock".
 
@@ -102,6 +103,23 @@ Running the same scenario twice should produce identical findings. Running with 
 
 - No scenario should produce more than 5 provider notes after suppression (capped by the system).
 - When the gate skips, zero provider notes should appear.
+
+### 13. API Surface Expansion Triggers Review
+
+PRs that introduce or modify API surface (new routes, endpoints, controllers, or CRUD resources) should:
+
+- Set the `api_surface_expansion` review flag in the ReviewPlan.
+- Add authentication and authorization to the plan's focus areas.
+- Generate at least one concern about access control and object-level authorization.
+- Generate per-file observations for route/controller/handler files.
+- Trigger provider invocation when a provider is available.
+
+This does **not** produce findings or affect scoring. It increases review attention for security-relevant code-shape changes while keeping the trust boundary intact.
+
+Detection uses:
+- Path-based signals: files in `routes/`, `controllers/`, `handlers/`, `endpoints/`, `views/`, `api/`, `routers/`, `resources/` directories.
+- Content-based signals: route registration decorators, API router instantiation, versioned API paths, CRUD function patterns, auth middleware references, resource controller classes.
+- Non-code files (markdown, JSON, YAML, lockfiles, images) are excluded from content scanning.
 
 ## What Remains Subjective
 

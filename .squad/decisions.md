@@ -2173,3 +2173,83 @@ Without repo-level config, every file changed in a PR receives equal review trea
 - **Per-path provider control** — provider_skip_paths is PR-level, not per-file within provider invocation.
 - **Wildcard negation** — no exclusion-from-exclusion patterns (e.g. "all tests except integration tests").
 - **Config validation could be stricter** — e.g. warning on redundant patterns, detecting unreachable globs. Kept simple for Phase 1.
+
+## ADR-042: API surface expansion as a first-class review-triggering signal
+
+**Date:** 2026-04-01
+
+### Decision
+
+Treat API surface expansion (new routes, endpoints, controllers, CRUD resources) as a first-class review-triggering signal. The provider gate is intentionally more permissive for security-relevant code-shape changes that expand the externally reachable API surface.
+
+### Context
+
+A recent PR that introduced a new authenticated CRUD resource and route stack did not trigger meaningful AI review. The existing planner and provider gate relied on sensitive-path and auth-path heuristics that missed new endpoint/resource patterns when they did not live in `auth/`, `config/`, or other traditionally sensitive directories.
+
+New endpoints and CRUD resources are security-relevant: they create object-access patterns, require authentication enforcement, and need authorization consistency. Missing review for these changes is a product gap.
+
+### What changed
+
+#### Planner (`reviewer/planner.py`)
+- Added `_API_SURFACE_PATH_SEGMENTS` (routes, controllers, handlers, endpoints, views, api, routers, resources)
+- Added `_ROUTE_CONTENT_PATTERNS` — regex-based detection for route registration decorators, API router instantiation, versioned API paths, CRUD function definitions, auth middleware references, and resource controller classes
+- `build_review_plan()` now calls `_apply_api_surface_focus()` which combines path-based and content-based signals
+- When API surface expansion is detected: `api_surface_expansion` review flag is set, matched paths are added to `sensitive_paths_touched`, authentication/authorization focus areas are ensured
+- New concern generated: "New API surface or CRUD resource" with `basis="api_surface_expansion"` and authorization category
+- Reviewer guidance includes API surface note
+
+#### Provider gate (`reviewer/provider_gate.py`)
+- New signal: `api_surface_expansion` review flag triggers provider invocation
+- Gate remains explicit and reason-based — the new signal is an additive invoke reason, not a threshold change
+
+#### Bundle builder (`reviewer/bundle.py`)
+- New review reason: `api_surface` for files detected in API surface areas
+- `_classify_review_reason()` accepts `is_api_surface` parameter
+- API surface files are treated as high-focus items (existing `has_high_focus_items` property already handles non-`changed_file` reasons)
+
+#### Observation generator (`reviewer/observations.py`)
+- New observation type: `_api_surface_observation()` for files with `api_surface` review reason
+- Observations include authorization-focused guidance (object-level authz, cross-user data, auth enforcement)
+- `basis="api_surface_bundle_item"` for traceability
+
+#### Tests (`tests/test_api_surface_review.py`)
+- 47 focused tests covering:
+  - Path-based API surface detection (routes, controllers, handlers, endpoints, views, api directories)
+  - Content-based route detection (FastAPI, Express, Flask, CRUD patterns, auth middleware)
+  - Plan focus and flags
+  - Provider gate behavior (invokes for routes, skips for plain utils)
+  - Concern generation (authorization category, mentions access control)
+  - Observation generation (API surface observations, no observations for plain files)
+  - Full pipeline with mock and disabled providers
+  - Negative cases (docs-only, tests, lockfiles, plain utilities stay quiet)
+  - Scoring unchanged, ScanResult contract unchanged
+  - Config exclusions still work
+  - Trust boundary preservation (no provider-sourced findings)
+  - Mixed scenarios (route + secret, auth route + memory)
+
+#### Documentation
+- `docs/quality-rubric.md` — added expectation 13 (API Surface Expansion Triggers Review)
+- `docs/validation.md` — added API surface expansion test coverage section
+- `docs/trust-model.md` — clarified that API surface expansion lowers gate threshold
+
+### What did NOT change
+- **ScanResult JSON contract** — unchanged
+- **Scoring model** — unchanged (findings-only, deterministic)
+- **Trust boundaries** — unchanged (provider output remains non-authoritative)
+- **Finding categories** — unchanged (no new categories)
+- **Deterministic checks** — unchanged
+- **Low-signal quietness** — docs, tests, lockfiles, fixtures remain quiet
+
+### Design decisions
+- **Combined path + content detection** — path segments catch directory-organized routes; content patterns catch route registration in any file. Both are needed for broad coverage.
+- **Content patterns exclude non-code files** — markdown, JSON, YAML, lock, and image files are excluded from content scanning to avoid false positives.
+- **API surface paths treated as sensitive** — adding to `sensitive_paths_touched` leverages existing planner/bundle/observation infrastructure without a new code path.
+- **`api_surface` review reason in bundle** — gives the observation generator a distinct code path for API-focused observations.
+- **Concern at medium confidence** — API surface expansion is a reasonable basis for security concern but is heuristic, not deterministic.
+
+### Deferred concerns
+- **Content-based detection is regex heuristic** — it may miss custom routing frameworks or catch decorative uses. This is acceptable for Phase 1.
+- **No AST-level analysis** — route detection does not parse code. Future phases may add framework-specific analysis.
+- **Provider-backed findings remain deferred** — the gate opens more readily, but provider output still does not create findings.
+- **Further gating refinement may be needed** — some patterns may produce false positives for internal utilities or test helpers that use route-like patterns.
+- **Deterministic endpoint checks remain separate** — this change adds review triggering, not deterministic security rules for endpoints.
