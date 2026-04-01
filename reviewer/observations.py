@@ -97,6 +97,10 @@ def _observe_item(
     if item.review_reason == "sensitive_auth":
         return _sensitive_auth_observation(item, bundle)
 
+    # -- API surface item: endpoint/CRUD resource review --
+    if item.review_reason == "api_surface":
+        return _api_surface_observation(item, bundle)
+
     # -- Auth area with baseline auth patterns: consistency --
     if item.review_reason == "auth_area" and bundle.repo_auth_patterns:
         return _auth_consistency_observation(item, bundle)
@@ -149,6 +153,38 @@ def _sensitive_auth_observation(
         ),
         confidence="medium",
         basis="sensitive_auth_bundle_item",
+        related_paths=item.related_paths[:_MAX_RELATED_PATHS],
+    )
+
+
+def _api_surface_observation(
+    item: ReviewBundleItem,
+    bundle: ReviewBundle,
+) -> ReviewObservation:
+    """Observation for an API surface file (route, endpoint, controller, CRUD resource)."""
+    focus = _primary_focus(item, "authorization")
+    basename = _file_basename(item.path)
+    patterns_note = ""
+    if bundle.repo_auth_patterns:
+        patterns = ", ".join(bundle.repo_auth_patterns[:3])
+        patterns_note = (
+            f" Repository auth patterns include {patterns}; "
+            f"verify alignment."
+        )
+
+    return ReviewObservation(
+        path=item.path,
+        focus_area=focus,
+        title=f"API surface: {basename}",
+        summary=(
+            f"`{item.path}` introduces or modifies API surface "
+            f"(routes, endpoints, or CRUD resource logic). Verify that "
+            f"authentication is enforced, object-level authorization is "
+            f"consistent, and list/query paths do not expose cross-user "
+            f"data.{patterns_note}"
+        ),
+        confidence="medium",
+        basis="api_surface_bundle_item",
         related_paths=item.related_paths[:_MAX_RELATED_PATHS],
     )
 

@@ -107,6 +107,13 @@ def evaluate_provider_gate(
     elif bundle is not None:
         skip_reasons.append("bundle items are all low-focus (changed_file only)")
 
+    # -- Signal: API surface expansion (ADR-042) --
+    if plan.review_flags and "api_surface_expansion" in plan.review_flags:
+        invoke_reasons.append(
+            "API surface expansion detected (new routes, endpoints, "
+            "or CRUD resources)"
+        )
+
     # -- Decision: at least one invoke reason required --
     should_invoke = len(invoke_reasons) > 0
 

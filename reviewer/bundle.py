@@ -33,6 +33,7 @@ from reviewer.models import (
     ReviewPlan,
 )
 from reviewer.planner import (
+    api_surface_path_overlap,
     auth_path_overlap,
     infer_path_categories,
     relevant_memory_entries,
@@ -77,6 +78,8 @@ def build_review_bundle(
     changed_paths = ctx.pr_content.paths
     sensitive_set = set(plan.sensitive_paths_touched)
     auth_set = set(plan.auth_paths_touched)
+    api_surface_set = set(api_surface_path_overlap(changed_paths))
+    has_api_expansion = "api_surface_expansion" in plan.review_flags
 
     # -- Pre-compute memory relevance --
     memory_by_path: dict[str, list[str]] = {}
@@ -94,9 +97,14 @@ def build_review_bundle(
         path = pr_file.path
         is_sensitive = path in sensitive_set
         is_auth = path in auth_set
+        is_api_surface = has_api_expansion and (
+            path in api_surface_set or path in sensitive_set
+        )
 
         # -- Determine review reason --
-        review_reason = _classify_review_reason(is_sensitive, is_auth)
+        review_reason = _classify_review_reason(
+            is_sensitive, is_auth, is_api_surface,
+        )
 
         # -- Determine focus areas for this file --
         file_focus = _file_focus_areas(path, plan)
@@ -125,10 +133,16 @@ def build_review_bundle(
     return bundle
 
 
-def _classify_review_reason(is_sensitive: bool, is_auth: bool) -> str:
+def _classify_review_reason(
+    is_sensitive: bool,
+    is_auth: bool,
+    is_api_surface: bool = False,
+) -> str:
     """Classify the primary review reason for a file."""
     if is_sensitive and is_auth:
         return "sensitive_auth"
+    if is_api_surface:
+        return "api_surface"
     if is_sensitive:
         return "sensitive_path"
     if is_auth:
