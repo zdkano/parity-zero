@@ -398,8 +398,9 @@ class TestTrustBoundaryPreservation:
 
         # Provider review items should be present (when mock produces them)
         # but they should never appear in findings
+        # All findings must come from deterministic checks only
         for finding in analysis.findings:
-            assert finding.confidence != Confidence.LOW or True  # findings come from deterministic only
+            assert finding.category in (Category.SECRETS, Category.INSECURE_CONFIGURATION)
 
         # Scoring should not be affected by provider review
         decision, risk = derive_decision_and_risk(analysis.findings)
@@ -620,10 +621,7 @@ class TestProviderReviewPipelineIntegration:
         # Trust boundary: no findings from provider review
         for f in analysis.findings:
             # All findings should come from deterministic checks only
-            assert f.category in (
-                Category.SECRETS,
-                Category.INSECURE_CONFIGURATION,
-            ) or True  # deterministic categories
+            assert f.category in (Category.SECRETS, Category.INSECURE_CONFIGURATION)
 
         # Scoring unchanged
         decision, risk = derive_decision_and_risk(analysis.findings)

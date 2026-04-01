@@ -129,7 +129,7 @@ class ProviderReview:
 # ======================================================================
 
 
-def parse_provider_review_json(raw_text: str, provider_name: str = "") -> list[dict]:
+def parse_provider_review_json(raw_text: str, provider_name: str = "") -> list[dict]:  # noqa: ARG001
     """Parse raw provider JSON text into a list of dicts.
 
     Supports:
