@@ -33,12 +33,15 @@ ReviewBundle ────────────────── structured e
          ▼ (if yes)
        ReasoningProvider ────── candidate notes (non-authoritative)
          │
+         ├──▶ ProviderReview ──── structured review items (ADR-044)
+         │      (validated, normalised, deduplicated, bounded)
+         │
          ▼
        Observation Refinement ─ enrich observations with provider detail
   │
   ▼
 AnalysisResult
-  │  (findings + concerns + observations + provider notes + trace)
+  │  (findings + concerns + observations + provider review + provider notes + trace)
   │
   ▼
 Scoring ─────────────────────── derive decision + risk_score from findings ONLY
@@ -48,7 +51,7 @@ ScanResult ──────────────────── structur
   │
   ▼
 Markdown Summary ────────────── developer-facing PR output
-  (findings + concerns + observations + provider notes)
+  (findings + concerns + observations + provider review items + provider notes)
   │
   ▼ (optional, if PARITY_ZERO_API_URL configured)
 Backend Ingest ──────────────── POST ScanResult to backend API
@@ -83,6 +86,9 @@ Evaluates whether the PR context is rich enough to justify calling a reasoning p
 ### ReasoningProvider
 Abstract interface for AI reasoning backends. Implementations: `DisabledProvider` (default no-op), `MockProvider` (testing), `GitHubModelsProvider`, `AnthropicProvider`, `OpenAIProvider`. Provider output is **candidate notes only** — non-authoritative.
 
+### ProviderReviewItem / ProviderReview (ADR-044)
+Structured review output from provider invocations. Each `ProviderReviewItem` carries kind, category, title, summary, paths, confidence, evidence, and source. Items are validated, normalised, deduplicated, and bounded (max 8). A `ProviderReview` container is carried on `ReasoningResult` and `AnalysisResult`. Review items are **non-authoritative** — they do not create findings, affect scoring, or change the decision. When present, they supersede legacy candidate notes in the markdown output.
+
 ### ReviewTrace
 Internal traceability record capturing pipeline decisions: gate results, bundle stats, concern/observation counts, provider invocation outcome. Not exposed in ScanResult or markdown.
 
@@ -94,9 +100,9 @@ Tracks changed files that could not be loaded (deleted, binary, too large, unrea
 The critical trust boundary in the pipeline:
 
 - **Findings** (from deterministic checks) → **authoritative** → drive scoring and decision
-- **Everything else** (concerns, observations, provider notes) → **non-authoritative** → informational only
+- **Everything else** (concerns, observations, provider review items, provider notes) → **non-authoritative** → informational only
 
-Provider output never creates findings, affects scoring, or influences the pass/warn/block decision. This is an enforced invariant. See [Trust Model](trust-model.md).
+Provider output — including structured `ProviderReviewItem` objects (ADR-044) — never creates findings, affects scoring, or influences the pass/warn/block decision. This is an enforced invariant. See [Trust Model](trust-model.md).
 
 ## Module Map
 
@@ -110,6 +116,7 @@ reviewer/
   bundle.py          ─ review bundle building
   checks.py          ─ deterministic checks
   reasoning.py       ─ reasoning layer (contextual notes, provider integration)
+  provider_review.py ─ structured provider review output (ADR-044)
   observations.py    ─ observation generation and refinement
   formatter.py       ─ markdown output formatting
   providers.py       ─ provider implementations

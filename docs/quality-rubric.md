@@ -123,6 +123,19 @@ Detection uses:
 - Content-based signals: route registration decorators, API router instantiation, versioned API paths, CRUD function patterns, auth middleware references, resource controller classes.
 - Non-code files (markdown, JSON, YAML, lockfiles, images) are excluded from content scanning.
 
+### 14. Structured Provider Review Output Is Non-Authoritative (ADR-044)
+
+When structured provider review items (`ProviderReviewItem`) are present, they:
+
+- Are validated against a bounded vocabulary of kinds (`candidate_finding`, `candidate_observation`, `review_attention`) and the findings taxonomy categories.
+- Have confidence capped at `medium` — provider output never claims `high` confidence.
+- Are normalised, deduplicated (by title+paths), and bounded (max 8 per invocation).
+- Require code-level evidence (`evidence` field) — items without evidence context are less useful.
+- Are tied to specific changed file paths where possible.
+- Appear in the markdown summary under "🤖 Provider Security Review" but do **not** create findings, affect scoring, or influence the decision.
+
+When structured review items are present, legacy provider candidate notes are **suppressed** in markdown output to avoid redundancy. The legacy "Additional Review Notes" section is replaced by the structured review section.
+
 ## What Remains Subjective
 
 Some quality aspects are intentionally **not** encoded as automated checks:

@@ -11,7 +11,8 @@ parity-zero produces several distinct types of output. They have different trust
 | **Finding** | Yes | Yes | Yes | Yes |
 | **ReviewConcern** | No | No | No | Yes |
 | **ReviewObservation** | No | No | No | Yes |
-| **Provider candidate notes** | No | No | No | Yes (when present) |
+| **ProviderReviewItem** | No | No | No | Yes (when present) |
+| **Provider candidate notes** | No | No | No | Yes (when present, superseded by ProviderReviewItem) |
 | **ReviewTrace** | No | No | No | No |
 
 ## Finding
@@ -65,7 +66,23 @@ A `ReviewObservation` is a **per-file** contextual analysis note derived from `R
 
 **Example:** "src/auth/login.py is in a sensitive path (src/auth/) and the PR touches authentication logic in a Flask app with known JWT patterns."
 
+## ProviderReviewItem (ADR-044)
+
+When a reasoning provider is enabled and invoked, it now produces **structured review items** (`ProviderReviewItem`) instead of free-form candidate notes.
+
+- Each item has explicit `kind` (candidate_finding, candidate_observation, review_attention), `category`, `title`, `summary`, `paths`, `confidence`, `evidence`, and `source` fields.
+- Items are **non-authoritative** — they do not create findings, affect scoring, or influence the pass/warn decision.
+- Items are validated, normalised, deduplicated, and bounded (max 8 per invocation) before surfacing.
+- Confidence is capped at `medium` — provider output is never `high` confidence.
+- Items appear in the markdown summary under the "🤖 Provider Security Review" section.
+- Items do **not** appear in `ScanResult` JSON.
+- The pipeline carries structured review output via `ProviderReview` on `ReasoningResult` and `AnalysisResult`.
+- When structured review items are present, legacy provider candidate notes are **suppressed** in the markdown output to avoid redundancy.
+- Trust semantics are identical to candidate notes — no provider output is authoritative regardless of how structured it is.
+
 ## Provider Candidate Notes
+
+**Note:** When structured `ProviderReviewItem` output is available (ADR-044), candidate notes are superseded and suppressed in markdown. The section below describes the legacy behavior that applies when structured review output is absent.
 
 When a reasoning provider (GitHub Models, Anthropic, or OpenAI) is enabled and invoked, it produces **candidate notes**.
 
@@ -126,6 +143,7 @@ The scoring function is deterministic. It does not incorporate provider output, 
 - Per-file observations from review bundles
 - Provider-backed observation enrichment
 - Provider gating based on context richness
+- Structured provider review output (ADR-044) — `ProviderReviewItem` with kind, category, title, summary, paths, confidence, evidence; validated, normalised, deduplicated, bounded; non-authoritative
 - ReviewTrace for internal traceability
 - Validation scenario harness
 - Evaluation and benchmarking layer (ADR-038) — 13 curated scenarios, provider comparison, output-quality assertions
