@@ -356,6 +356,7 @@ def run_scenario(scenario: ValidationScenario) -> ValidationResult:
         concerns=analysis.concerns,
         observations=analysis.observations,
         provider_notes=analysis.provider_notes,
+        provider_review=analysis.provider_review,
     )
 
     # Evaluate provider gate independently for gate assertions

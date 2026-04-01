@@ -29,6 +29,7 @@ parity-zero is in active early development. The reviewer pipeline is functional 
 - internal reviewer traceability (ReviewTrace)
 - PR validation scenario harness
 - **evaluation and benchmarking layer** — 13 curated scenarios, provider comparison, output-quality assertions (ADR-038)
+- **structured provider-first review output** — provider reasoning produces structured review items (`ProviderReviewItem`) with kind, category, evidence, and bounded confidence; non-authoritative (ADR-044)
 - **realistic evaluation corpus** — 10 file-backed scenarios for representative PR evaluation, provider comparison, and lightweight scorecard (ADR-039)
 - **repo-level configuration** — optional `.parity-zero.yml` for path exclusions, low-signal paths, and provider-skip paths (ADR-041)
 - stable ScanResult JSON contract
@@ -53,7 +54,7 @@ The full control plane dashboard is intentionally deferred. See [roadmap context
 | Anthropic | `anthropic` | `ANTHROPIC_API_KEY` |
 | OpenAI / ChatGPT | `openai` | `OPENAI_API_KEY` |
 
-All providers are disabled by default. Provider output is **non-authoritative** — it does not create findings, affect scoring, or influence the pass/warn decision. See [trust model](docs/trust-model.md).
+All providers are disabled by default. Provider output is **non-authoritative** — it does not create findings, affect scoring, or influence the pass/warn decision. When a provider is enabled, its output is now returned as structured review items with explicit kind, category, confidence, and evidence fields (ADR-044). See [trust model](docs/trust-model.md).
 
 ## Quick Start
 

@@ -96,6 +96,9 @@ python -m pytest tests/test_realistic_evaluation.py -v
 # Run quality tuning assertions
 python -m pytest tests/test_quality_tuning.py -v
 
+# Run structured provider review tests (ADR-044)
+python -m pytest tests/test_provider_review.py -v
+
 # Run a specific scenario class
 python -m pytest tests/test_validation_harness.py::TestAuthSensitiveScenario -v
 
@@ -280,6 +283,8 @@ Every scenario with `no_trust_boundary_violations=True` (the default) verifies:
 
 1. **No provider-sourced findings** — provider output never creates findings
 2. **Decision is deterministic** — decision and risk_score are derivable from findings alone
+
+Structured provider review output (`ProviderReviewItem`, ADR-044) is subject to the same trust boundary invariants. Review items are validated for kind, category, confidence bounds, and path correctness, but never promote to findings or affect scoring. See `tests/test_provider_review.py` for dedicated validation of parsing, normalisation, deduplication, and trust boundary enforcement.
 
 These invariants are enforced regardless of whether the provider is disabled or mock, and across all comparison modes.
 

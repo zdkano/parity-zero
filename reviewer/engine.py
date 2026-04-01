@@ -40,6 +40,7 @@ from reviewer.checks import run_deterministic_checks
 from reviewer.models import PRContent, PullRequestContext, ReviewBundle, ReviewConcern, ReviewObservation, ReviewTrace
 from reviewer.planner import build_review_plan
 from reviewer.providers import CandidateNote, DisabledProvider, ReasoningProvider
+from reviewer.provider_review import ProviderReview
 from reviewer.reasoning import run_reasoning
 from reviewer.repo_config import RepoConfig, filter_excluded_paths
 
@@ -85,6 +86,7 @@ class AnalysisResult:
     concerns: list[ReviewConcern] = field(default_factory=list)
     observations: list[ReviewObservation] = field(default_factory=list)
     provider_notes: list[CandidateNote] = field(default_factory=list)
+    provider_review: ProviderReview | None = None
     bundle: ReviewBundle | None = None
     trace: ReviewTrace = field(default_factory=ReviewTrace)
 
@@ -182,6 +184,7 @@ def analyse(
         concerns=reasoning_result.concerns,
         observations=reasoning_result.observations,
         provider_notes=reasoning_result.provider_notes,
+        provider_review=reasoning_result.provider_review,
         bundle=reasoning_result.bundle,
         trace=reasoning_result.trace,
     )

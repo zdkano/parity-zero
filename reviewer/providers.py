@@ -172,12 +172,15 @@ class ReasoningResponse:
     is treated as *candidate* material — the pipeline decides what to
     trust and surface.
 
-    Phase 1: provider output produces candidate notes only.  Candidate
-    findings are a future capability once trust calibration is in place.
-
     ``structured_notes`` carry normalized ``CandidateNote`` objects
     for dedup and rendering.  ``candidate_notes`` remains as a flat
     string list for backward compatibility.
+
+    ``structured_review_json`` (ADR-044) carries the raw provider JSON
+    text for structured review output.  The pipeline parses this via
+    ``provider_review.parse_and_validate_provider_review()`` to produce
+    ``ProviderReviewItem`` objects — the primary non-authoritative
+    review surface.
     """
 
     candidate_notes: list[str] = field(default_factory=list)
@@ -185,6 +188,14 @@ class ReasoningResponse:
 
     structured_notes: list[CandidateNote] = field(default_factory=list)
     """Normalized candidate notes with title, summary, paths, confidence."""
+
+    structured_review_json: str = ""
+    """Raw JSON text of provider structured review output (ADR-044).
+
+    Parsed by the pipeline via provider_review module.  Empty string
+    when not available (e.g. disabled/mock providers may produce it
+    directly as structured data instead).
+    """
 
     candidate_findings: list[dict[str, str]] = field(default_factory=list)
     """Reasoning-generated candidate findings (future use, empty in Phase 1)."""
@@ -198,7 +209,7 @@ class ReasoningResponse:
     @property
     def has_content(self) -> bool:
         """Whether the response carries any content."""
-        return bool(self.candidate_notes or self.candidate_findings)
+        return bool(self.candidate_notes or self.candidate_findings or self.structured_review_json)
 
 
 # ======================================================================
@@ -286,16 +297,57 @@ class MockProvider(ReasoningProvider):
     - local development with realistic-looking reasoning output
 
     The mock provider does **not** generate findings — it only produces
-    candidate notes, consistent with Phase 1 trust boundaries.
+    candidate notes and structured review items, consistent with Phase 1
+    trust boundaries.
     """
 
     def reason(self, request: ReasoningRequest) -> ReasoningResponse:
         notes: list[str] = []
         structured: list[CandidateNote] = []
+        review_items: list[dict] = []
 
         paths = [f.get("path", "") for f in request.changed_files_summary[:5]]
 
-        # Per-file security-relevant notes (up to 3 files).
+        # -- Structured review items from review targets with code evidence --
+        for target in request.review_targets[:3]:
+            path = target.get("path", "")
+            reason = target.get("reason", "")
+            focus = target.get("focus_areas", "")
+            excerpt = target.get("code_excerpt", "")
+
+            if excerpt and reason in ("sensitive_auth", "auth_area", "api_surface"):
+                kind = "candidate_finding" if reason == "sensitive_auth" else "candidate_observation"
+                category = "authentication" if "auth" in reason else "authorization"
+                evidence_snippet = excerpt[:120].replace("\n", " ").strip()
+                summary = (
+                    f"`{path}` contains {reason.replace('_', ' ')} code that "
+                    f"may warrant security review; verify access control and "
+                    f"validation patterns are consistent with repository conventions."
+                )
+                review_items.append({
+                    "kind": kind,
+                    "category": category,
+                    "title": f"Security review: {path.rsplit('/', 1)[-1]}",
+                    "summary": summary,
+                    "paths": [path],
+                    "confidence": "medium" if reason == "sensitive_auth" else "low",
+                    "evidence": f"Code pattern: {evidence_snippet}..." if evidence_snippet else "",
+                })
+            elif excerpt and focus:
+                review_items.append({
+                    "kind": "review_attention",
+                    "category": focus.split(",")[0].strip() if focus else "",
+                    "title": f"Review attention: {path.rsplit('/', 1)[-1]}",
+                    "summary": (
+                        f"`{path}` changes code in a {focus} area; "
+                        f"consider verifying edge cases and error handling paths."
+                    ),
+                    "paths": [path],
+                    "confidence": "low",
+                    "evidence": "",
+                })
+
+        # Per-file security-relevant notes (up to 3 files) — legacy CandidateNote.
         for f_info in request.changed_files_summary[:3]:
             path = f_info.get("path", "")
             focus = f_info.get("focus_areas", "")
@@ -411,9 +463,14 @@ class MockProvider(ReasoningProvider):
                 source="mock",
             ))
 
+        # Build structured_review_json from review_items.
+        import json as _json
+        review_json = _json.dumps(review_items) if review_items else ""
+
         return ReasoningResponse(
             candidate_notes=notes,
             structured_notes=structured,
+            structured_review_json=review_json,
             candidate_findings=[],
             provider_name=self.name,
             is_from_live_provider=False,
@@ -450,31 +507,44 @@ _SYSTEM_PROMPT = (
     "pull request review.  You have access to contextual information about "
     "the repository and the specific changes being reviewed.\n\n"
     "Your role:\n"
-    "- Produce concise, security-relevant observations about the changed code.\n"
-    "- Focus on what the specific changes introduce or expose.\n"
-    "- Be file-specific: tie each observation to the relevant changed file(s).\n"
+    "- Review the actual changed code provided in the REVIEW TARGETS section.\n"
+    "- Produce structured security review judgments about what the changes "
+    "introduce, expose, or weaken.\n"
+    "- Be file-specific: tie each item to the relevant changed file(s).\n"
     "- Reference concrete code patterns, functions, or configurations.\n"
-    "- When code evidence is provided in the REVIEW TARGETS section, base "
-    "your observations on the actual code shown — do not speculate about "
+    "- Base your review on the actual code shown — do not speculate about "
     "code you have not seen.\n"
-    "- Only comment when the code evidence supports a meaningful observation.\n"
+    "- Only produce items when the code evidence supports a meaningful "
+    "security observation.\n"
     "- Express genuine uncertainty — say 'may', 'could', 'worth verifying' "
-    "when you are not certain.\n\n"
+    "when you are not certain.\n"
+    "- Include brief evidence quotes or references from the code when useful.\n\n"
     "Do NOT:\n"
     "- Restate deterministic findings already listed in the context.\n"
     "- Repeat concerns or observations already provided.\n"
     "- Restate context metadata (file counts, focus areas, baseline "
     "frameworks, or memory categories) — these are already known.\n"
     "- Produce generic security best-practice advice unrelated to the changes.\n"
-    "- Produce vague observations based only on file names or paths — "
-    "use the code evidence provided.\n"
-    "- Summarise what was analysed — only provide new observations.\n"
-    "- Exaggerate risk — do not claim vulnerabilities without evidence.\n"
-    "- Assign severity or confidence scores.\n\n"
+    "- Produce vague observations based only on file names or paths.\n"
+    "- Summarise what was analysed — only provide new review items.\n"
+    "- Exaggerate risk — do not claim vulnerabilities without evidence.\n\n"
     "Output format:\n"
-    "Return ONLY a JSON array of objects.  Each object must have:\n"
-    '  {"title": "<short title>", "summary": "<1-2 sentence observation>", '
-    '"paths": ["<related file path(s)>"], "confidence": "low" or "medium"}\n'
+    "Return ONLY a JSON array of structured review objects.  Each object must have:\n"
+    "  {\n"
+    '    "kind": "candidate_finding" | "candidate_observation" | "review_attention",\n'
+    '    "category": "<taxonomy category or empty string>",\n'
+    '    "title": "<short title>",\n'
+    '    "summary": "<1-2 sentence security observation>",\n'
+    '    "paths": ["<related file path(s)>"],\n'
+    '    "confidence": "low" | "medium",\n'
+    '    "evidence": "<brief code-level rationale or quote>"\n'
+    "  }\n\n"
+    "Valid categories: authentication, authorization, input_validation, "
+    "secrets, insecure_configuration, dependency_risk (or empty string).\n"
+    "Valid kinds:\n"
+    "  - candidate_finding: a potential security issue worth investigating\n"
+    "  - candidate_observation: a security-relevant observation or context\n"
+    "  - review_attention: an area that warrants closer human review\n\n"
     "If there are no meaningful security observations, return an empty array: []\n"
     "Do not include any text outside the JSON array.\n"
 )
@@ -845,6 +915,7 @@ class GitHubModelsProvider(ReasoningProvider):
         return ReasoningResponse(
             candidate_notes=flat_notes,
             structured_notes=structured,
+            structured_review_json=raw_content,
             candidate_findings=[],
             provider_name=self.name,
             is_from_live_provider=True,
@@ -982,6 +1053,7 @@ class AnthropicProvider(ReasoningProvider):
         return ReasoningResponse(
             candidate_notes=flat_notes,
             structured_notes=structured,
+            structured_review_json=raw_content,
             candidate_findings=[],
             provider_name=self.name,
             is_from_live_provider=True,
@@ -1116,6 +1188,7 @@ class OpenAIProvider(ReasoningProvider):
         return ReasoningResponse(
             candidate_notes=flat_notes,
             structured_notes=structured,
+            structured_review_json=raw_content,
             candidate_findings=[],
             provider_name=self.name,
             is_from_live_provider=True,

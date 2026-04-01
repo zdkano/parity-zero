@@ -2311,3 +2311,85 @@ The formatted user prompt now includes a `REVIEW TARGETS` section with code bloc
 - **Provider-backed findings remain deferred** — evidence improvement does not change the trust boundary.
 - **Larger multi-file semantic reasoning** — cross-file analysis with evidence remains future work.
 - **Evidence quality metrics** — measuring whether evidence improves provider output quality is not automated yet.
+
+---
+
+## ADR-044: Provider-first structured review output
+
+**Status:** Accepted  
+**Date:** 2026-04-01
+
+### Context
+
+parity-zero had drifted toward a deterministic-first reviewer with provider-assisted commentary.  The intended product direction is provider-first structured review — where the provider is the primary reviewer and parity-zero provides bounded evidence, structured schemas, normalisation, deduplication, trust boundaries, scoring policy, and presentation.
+
+Provider output was loose `CandidateNote` objects — free-form title/summary pairs without structured review semantics.  The provider merely enriched or commented on deterministic/contextual output rather than driving the review.
+
+### Decision
+
+Introduce `ProviderReviewItem` — a structured review schema richer than `CandidateNote` — as the primary non-authoritative review surface.  The provider is now asked to return structured JSON review judgments about actual changed code.  parity-zero parses, validates, normalises, deduplicates, and bounds the output before surfacing it.
+
+**Schema shape:**
+
+```python
+@dataclass
+class ProviderReviewItem:
+    kind: str       # candidate_finding | candidate_observation | review_attention
+    category: str   # taxonomy category or empty
+    title: str
+    summary: str
+    paths: list[str]
+    confidence: str  # low | medium (never high for provider output)
+    evidence: str    # code-level rationale
+    source: str      # provider name
+```
+
+**Pipeline changes:**
+- Provider system prompt updated to request structured review JSON with kind/category/title/summary/paths/confidence/evidence fields.
+- `ReasoningResponse` gains `structured_review_json` field for raw provider output.
+- `ReasoningResult` and `AnalysisResult` carry `provider_review: ProviderReview | None`.
+- `reasoning.py` parses structured review after provider invocation via `provider_review.parse_and_validate_provider_review()`.
+- Markdown formatter renders a new "🤖 Provider Security Review" section as the primary non-authoritative review surface.
+- When structured review items are present, legacy "Additional Review Notes" (from `CandidateNote`) is suppressed to avoid redundancy.
+
+**Normalisation rules:**
+- Invalid items are discarded (fail safe).
+- Invalid kinds default to `candidate_observation`.
+- Invalid categories are cleared (not mapped).
+- Confidence is bounded to `low` or `medium` only.
+- Duplicate items (same title + paths) are removed.
+- Output capped at 8 items per invocation.
+
+### Consequences
+
+**Unchanged:**
+- **ScanResult JSON contract** — unchanged. Provider review items do not appear in ScanResult.
+- **Scoring model** — unchanged. Only deterministic findings drive risk_score and decision.
+- **Trust boundaries** — unchanged. Provider output remains non-authoritative candidate material.
+- **Finding categories** — unchanged.
+- **Deterministic checks** — unchanged.
+- **Provider gate logic** — unchanged.
+- **Existing CandidateNote/observation/concern flow** — unchanged. All existing output types still produced.
+
+**Changed:**
+- Provider is now asked for structured review output matching the `ProviderReviewItem` schema.
+- `ProviderReview` is parsed, validated, and normalised in the pipeline.
+- Markdown output now has a "Provider Security Review" section as the primary non-authoritative review surface.
+- When structured review is present, legacy provider notes section is suppressed.
+- MockProvider produces structured review JSON for security-relevant review targets.
+- Live providers (GitHub Models, Anthropic, OpenAI) pass raw response text as `structured_review_json`.
+
+### Design decisions
+- **Provider-first, not provider-authoritative** — provider output drives the non-authoritative review commentary but does not create findings or affect scoring. This is the key product-direction change.
+- **Structured over free-form** — replacing loose notes with typed review items enables normalisation, deduplication, and category-aligned presentation.
+- **Fail-safe parsing** — malformed provider output results in empty review, not pipeline failure.
+- **Bounded confidence** — provider confidence is capped at medium; high confidence is reserved for deterministic findings.
+- **Evidence-first prompting** — system prompt instructs provider to review actual code from REVIEW TARGETS section.
+- **Additive change** — `CandidateNote` and observation/concern flows are preserved; `ProviderReviewItem` is a new addition.
+
+### Deferred concerns
+- **Provider-generated authoritative findings** — provider output does not create `Finding` objects yet. This requires a verifier/promotion model.
+- **Provider output affecting scoring** — deferred. Provider items remain non-scoring.
+- **Further simplification of heuristic layers** — existing concern/observation generators may be simplified in future if they become redundant.
+- **Verifier/promotion model for candidate findings** — converting `candidate_finding` items to real `Finding` objects requires trust calibration.
+- **Cross-provider schema alignment** — current schema works for all providers but may need per-provider tuning later.

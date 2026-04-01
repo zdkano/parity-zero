@@ -239,6 +239,7 @@ def run() -> None:
     markdown = format_markdown(
         result, concerns=analysis.concerns, observations=analysis.observations,
         provider_notes=analysis.provider_notes,
+        provider_review=analysis.provider_review,
     )
     print("\n--- Markdown Summary ---\n")
     print(markdown)
@@ -334,6 +335,7 @@ def mock_run() -> dict:
     markdown = format_markdown(
         result, concerns=analysis.concerns, observations=analysis.observations,
         provider_notes=analysis.provider_notes,
+        provider_review=analysis.provider_review,
     )
     json_output = result.model_dump_json(indent=2)
 
