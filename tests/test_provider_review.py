@@ -567,19 +567,19 @@ class TestProviderReviewMarkdown:
         assert "⚡" in md  # review_attention
 
     def test_max_items_in_markdown(self):
-        """Only up to 5 items should be shown in markdown."""
+        """Up to 8 items should be shown in markdown (ADR-045)."""
         items = [
             ProviderReviewItem(
                 title=f"Item {i}",
                 summary=f"Summary for item {i} that is long enough to display.",
             )
-            for i in range(8)
+            for i in range(10)
         ]
-        review = ProviderReview(items=items, raw_item_count=8)
+        review = ProviderReview(items=items, raw_item_count=10)
         md = format_markdown(_make_scan_result(), provider_review=review)
         assert "Item 0" in md
-        assert "Item 4" in md
-        assert "Item 5" not in md  # capped at 5
+        assert "Item 7" in md
+        assert "Item 8" not in md  # capped at 8
 
     def test_backward_compat_no_provider_review(self):
         """format_markdown works without provider_review parameter."""

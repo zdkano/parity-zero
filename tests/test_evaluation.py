@@ -442,17 +442,30 @@ class TestOutputQuality:
             )
 
     def test_findings_concerns_observations_clearly_separated(self):
-        """In scenarios with all three, each should have its own section."""
+        """In scenarios with all three, each should have its own section.
+
+        ADR-045: When provider review is present, concerns/observations
+        are suppressed from markdown (provider becomes primary review
+        surface).  In that case, check for provider review section instead.
+        """
         s = get_scenario("auth-sensitive")
         result = run_scenario(s)
         md = result.markdown
         # Findings appear in main body
         assert "findings" in md.lower() or "secrets" in md.lower()
-        # Concerns and observations should be in separate sections if present
-        if len(result.analysis.concerns) > 0:
-            assert "concern" in md.lower() or "Contextual" in md
-        if len(result.analysis.observations) > 0:
-            assert "observation" in md.lower() or "Observation" in md
+        has_provider_review = (
+            result.analysis.provider_review
+            and result.analysis.provider_review.has_items
+        )
+        if has_provider_review:
+            # ADR-045: provider review replaces concerns/observations
+            assert "Provider Security Review" in md
+        else:
+            # Fallback: concerns and observations in separate sections
+            if len(result.analysis.concerns) > 0:
+                assert "concern" in md.lower() or "Contextual" in md
+            if len(result.analysis.observations) > 0:
+                assert "observation" in md.lower() or "Observation" in md
 
     def test_provider_notes_section_absent_when_no_notes(self):
         """If no provider notes, the Provider Notes section should not appear."""
