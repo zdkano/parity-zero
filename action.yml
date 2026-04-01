@@ -1,3 +1,20 @@
+name: "parity-zero"
+description: "AI-assisted security reviewer for GitHub pull requests"
+
+inputs:
+  github_token:
+    description: "GitHub token for PR comment updates and GitHub API fallback"
+    required: false
+    default: ""
+  api_url:
+    description: "Optional backend ingest URL"
+    required: false
+    default: ""
+  api_token:
+    description: "Optional backend auth token"
+    required: false
+    default: ""
+
 runs:
   using: "composite"
   steps:
@@ -23,10 +40,11 @@ runs:
       env:
         PYTHONPATH: ${{ github.action_path }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
+        PARITY_ZERO_API_URL: ${{ inputs.api_url }}
+        PARITY_ZERO_API_TOKEN: ${{ inputs.api_token }}
+
         PARITY_REASONING_PROVIDER: ${{ env.PARITY_REASONING_PROVIDER }}
         PARITY_REASONING_MODEL: ${{ env.PARITY_REASONING_MODEL }}
         OPENAI_API_KEY: ${{ env.OPENAI_API_KEY }}
-        ANTHROPIC_API_KEY: ${{ env.ANTHROPIC_API_KEY }}
         OPENAI_API_BASE: ${{ env.OPENAI_API_BASE }}
-        PARITY_ZERO_API_URL: ${{ inputs.api_url }}
-        PARITY_ZERO_API_TOKEN: ${{ inputs.api_token }}
+        ANTHROPIC_API_KEY: ${{ env.ANTHROPIC_API_KEY }}
