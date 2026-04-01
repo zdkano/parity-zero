@@ -75,6 +75,7 @@ When a reasoning provider (GitHub Models, Anthropic, or OpenAI) is enabled and i
 - Candidate notes may enrich existing observations (via the observation refinement layer).
 - The trust model is **identical across all providers** — no provider's output is treated as more authoritative than another's.
 - Provider invocation is **gated** — the provider is only called when the PR context is rich or security-relevant enough to justify it.
+- Provider requests include **bounded code evidence** from `ReviewBundle` items (ADR-043) — actual changed code excerpts for the most security-relevant files, not just file path metadata. This makes provider reasoning more evidence-based but does **not** change trust semantics. Provider output remains non-authoritative regardless of the evidence quality provided to it.
 - **API surface expansion** (new routes, endpoints, controllers, CRUD resources) is intentionally treated as a security-relevant signal that lowers the provider gate threshold (ADR-042). This makes the reviewer more willing to invoke provider reasoning for code-shape changes that affect the externally reachable API surface, while keeping low-signal changes quiet.
 
 ### Why provider output is non-authoritative

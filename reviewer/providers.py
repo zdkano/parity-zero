@@ -66,6 +66,19 @@ class ReasoningRequest:
     changed_files_summary: list[dict[str, str]] = field(default_factory=list)
     """Per-file summaries: each dict has 'path', 'review_reason', 'focus_areas'."""
 
+    review_targets: list[dict[str, str]] = field(default_factory=list)
+    """Bounded per-file code evidence for provider review.
+
+    Each dict has:
+      - 'path': file path
+      - 'reason': review reason (e.g. 'auth_area', 'api_surface')
+      - 'focus_areas': comma-separated focus areas
+      - 'code_excerpt': bounded code snippet from the changed file
+      - 'related_paths' (optional): comma-separated related changed paths
+      - 'memory_context' (optional): compact memory context
+      - 'baseline_context' (optional): compact baseline context
+    """
+
     plan_focus_areas: list[str] = field(default_factory=list)
     """Finding categories the review plan considers relevant."""
 
@@ -115,6 +128,11 @@ class ReasoningRequest:
     def has_memory_context(self) -> bool:
         """Whether the request carries review memory context."""
         return bool(self.memory_categories or self.memory_entries)
+
+    @property
+    def has_review_targets(self) -> bool:
+        """Whether the request carries bounded code evidence targets."""
+        return bool(self.review_targets)
 
 
 @dataclass
@@ -436,6 +454,10 @@ _SYSTEM_PROMPT = (
     "- Focus on what the specific changes introduce or expose.\n"
     "- Be file-specific: tie each observation to the relevant changed file(s).\n"
     "- Reference concrete code patterns, functions, or configurations.\n"
+    "- When code evidence is provided in the REVIEW TARGETS section, base "
+    "your observations on the actual code shown — do not speculate about "
+    "code you have not seen.\n"
+    "- Only comment when the code evidence supports a meaningful observation.\n"
     "- Express genuine uncertainty — say 'may', 'could', 'worth verifying' "
     "when you are not certain.\n\n"
     "Do NOT:\n"
@@ -444,6 +466,8 @@ _SYSTEM_PROMPT = (
     "- Restate context metadata (file counts, focus areas, baseline "
     "frameworks, or memory categories) — these are already known.\n"
     "- Produce generic security best-practice advice unrelated to the changes.\n"
+    "- Produce vague observations based only on file names or paths — "
+    "use the code evidence provided.\n"
     "- Summarise what was analysed — only provide new observations.\n"
     "- Exaggerate risk — do not claim vulnerabilities without evidence.\n"
     "- Assign severity or confidence scores.\n\n"
@@ -456,6 +480,34 @@ _SYSTEM_PROMPT = (
 )
 
 
+_EXTENSION_LANGUAGE_MAP: dict[str, str] = {
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".jsx": "javascript",
+    ".tsx": "typescript",
+    ".rb": "ruby",
+    ".go": "go",
+    ".rs": "rust",
+    ".java": "java",
+    ".yml": "yaml",
+    ".yaml": "yaml",
+    ".json": "json",
+    ".sh": "bash",
+    ".cs": "csharp",
+    ".php": "php",
+}
+
+
+def _infer_language(path: str) -> str:
+    """Infer a code-block language hint from the file extension."""
+    dot = path.rfind(".")
+    if dot == -1:
+        return ""
+    ext = path[dot:].lower()
+    return _EXTENSION_LANGUAGE_MAP.get(ext, "")
+
+
 def _format_user_prompt(request: ReasoningRequest) -> str:
     """Format a ReasoningRequest into a user prompt for the model.
 
@@ -463,6 +515,10 @@ def _format_user_prompt(request: ReasoningRequest) -> str:
     can reason about.  Intentionally concise to stay within token limits.
     Includes explicit context about what has already been detected to
     reduce redundant output.
+
+    When review targets with code evidence are available (ADR-043), they
+    are included as a dedicated section so the provider can reason about
+    actual code rather than just file path metadata.
     """
     sections: list[str] = []
 
@@ -477,6 +533,31 @@ def _format_user_prompt(request: ReasoningRequest) -> str:
                 parts.append(f"focus: {f['focus_areas']}")
             file_lines.append("  - " + ", ".join(parts))
         sections.append("Changed files:\n" + "\n".join(file_lines))
+
+    # -- Review targets with code evidence (ADR-043) --
+    if request.review_targets:
+        target_blocks = []
+        for t in request.review_targets:
+            block_lines = [f"### {t.get('path', 'unknown')}"]
+            if t.get("reason"):
+                block_lines.append(f"Review reason: {t['reason']}")
+            if t.get("focus_areas"):
+                block_lines.append(f"Focus areas: {t['focus_areas']}")
+            if t.get("related_paths"):
+                block_lines.append(f"Related changed files: {t['related_paths']}")
+            if t.get("memory_context"):
+                block_lines.append(f"Prior review context: {t['memory_context']}")
+            if t.get("baseline_context"):
+                block_lines.append(f"Baseline context: {t['baseline_context']}")
+            if t.get("code_excerpt"):
+                lang = _infer_language(t.get("path", ""))
+                block_lines.append(f"Code:\n```{lang}\n{t['code_excerpt']}\n```")
+            target_blocks.append("\n".join(block_lines))
+        sections.append(
+            "REVIEW TARGETS — code evidence for review (comment only when "
+            "code evidence supports an observation):\n\n"
+            + "\n\n".join(target_blocks)
+        )
 
     # -- Plan context --
     if request.plan_focus_areas:
