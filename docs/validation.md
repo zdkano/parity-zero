@@ -99,6 +99,9 @@ python -m pytest tests/test_quality_tuning.py -v
 # Run structured provider review tests (ADR-044)
 python -m pytest tests/test_provider_review.py -v
 
+# Run provider-first review output tests (ADR-045)
+python -m pytest tests/test_provider_first_review.py -v
+
 # Run a specific scenario class
 python -m pytest tests/test_validation_harness.py::TestAuthSensitiveScenario -v
 
@@ -285,6 +288,19 @@ Every scenario with `no_trust_boundary_violations=True` (the default) verifies:
 2. **Decision is deterministic** — decision and risk_score are derivable from findings alone
 
 Structured provider review output (`ProviderReviewItem`, ADR-044) is subject to the same trust boundary invariants. Review items are validated for kind, category, confidence bounds, and path correctness, but never promote to findings or affect scoring. See `tests/test_provider_review.py` for dedicated validation of parsing, normalisation, deduplication, and trust boundary enforcement.
+
+### Provider-First Review Output (ADR-045)
+
+ADR-045 established provider review as the **primary non-authoritative review surface**. When structured provider review items are present, heuristic concerns and observations are suppressed from markdown output — they become a fallback shown only when no provider review exists.
+
+Dedicated test coverage in `tests/test_provider_first_review.py` (31 tests) validates:
+
+- **Provider review is primary** — when provider review items exist, the "🤖 Provider Security Review" section appears and heuristic concerns/observations sections are suppressed in markdown
+- **Heuristic fallback** — when no provider review is present, concerns and observations sections appear normally
+- **Expanded item cap** — up to 8 provider review items are shown (was 5)
+- **Trust boundaries hold** — findings remain authoritative, provider review remains non-authoritative, scoring is unchanged
+- **Internal generation preserved** — concerns and observations are still generated internally even when suppressed from markdown
+- **Legacy suppression** — provider candidate notes remain suppressed when structured review is present
 
 These invariants are enforced regardless of whether the provider is disabled or mock, and across all comparison modes.
 
