@@ -253,7 +253,7 @@ The harness supports these assertion types:
 
 ## Quality Expectations
 
-The evaluation layer encodes these practical quality expectations (see `tests/test_evaluation.py`, `tests/test_realistic_evaluation.py`, and `tests/test_quality_tuning.py`):
+The evaluation layer encodes these practical quality expectations (see `tests/test_evaluation.py`, `tests/test_realistic_evaluation.py`, `tests/test_quality_tuning.py`, and `tests/test_change_summary.py`):
 
 - **No generic filler** — low-signal scenarios produce no findings, concerns, or observations
 - **No duplicated output** — no duplicate finding title+file pairs
@@ -265,6 +265,8 @@ The evaluation layer encodes these practical quality expectations (see `tests/te
 - **Provider-enriched observations remain non-authoritative** — trust boundary enforced, single-enrichment cap
 - **Markdown structure remains correct** — correct sections present/absent based on content
 - **Output remains concise** — no-findings scenarios have bounded markdown length, concerns capped per path
+- **Change summary is factual** — the deterministic "What Changed" section describes what changed without judgment (ADR-047)
+- **Provider context is diff-aware** — provider requests include fuller file context for small relevant files and file-level annotations (ADR-047)
 
 These are **heuristic quality checks**, not scientific benchmarks. They will evolve as the reviewer improves.
 

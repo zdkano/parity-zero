@@ -2569,3 +2569,92 @@ Apply a focused hardening pass with three layers:
 - **Some instability may remain** until broader evaluation/tuning.
 - **Richer evidence selection** (AST-based function extraction, cross-file
   data flow) may further improve quality later.
+
+---
+
+## ADR-047: Deterministic Change Summary and Diff-Aware Fuller Provider Context
+
+### Status: Accepted
+
+### Context
+
+Provider review is now more central (ADR-044, ADR-045, ADR-046), but the
+final review output lacks a short factual "what changed" summary at the
+top, making it harder for developers to quickly orient themselves before
+reading detailed review comments.  Additionally, provider review still
+relies too heavily on bounded snippets and metadata rather than a better
+combination of deterministic change summary, diff-aware evidence, and
+fuller changed-file context for small relevant files.  This can lead to
+speculative commentary, missing the real focus of the PR, and weaker
+grounding across related route/controller/validation/model changes.
+
+### Decision
+
+Two focused improvements:
+
+1. **Deterministic change summary** — a new "📝 What Changed" section
+   near the top of the markdown review.  Generated deterministically
+   from changed file paths, review bundle metadata, and plan signals.
+   Factual and compact — describes what changed without judgment.
+   Implemented in `reviewer/change_summary.py`.
+
+2. **Diff-aware fuller provider context** — provider prompts now include:
+   - Full file content for small relevant files (under 3000 chars) when
+     the file has a high-priority review reason (sensitive_auth,
+     api_surface, auth_area, sensitive_path).
+   - File-level context annotations describing the file's role, focus
+     areas, and whether full or excerpted content is included.
+   - The deterministic change summary as structured context in the
+     `ReasoningRequest`.
+   - Existing bounded review units (route/controller groupings, related
+     excerpts) remain and are complemented by the fuller context.
+
+### What changed
+
+- `reviewer/change_summary.py` — new module.  `build_change_summary()`
+  classifies changed files by path segments and content patterns (routes,
+  controllers, auth, validation, models, config, tests, migrations,
+  services, middleware).  `format_change_summary()` renders bullets.
+- `reviewer/prompt_builder.py` — `_bundle_item_to_target()` now
+  includes full file content for small high-priority files and adds
+  `file_context` annotations.  `build_reasoning_request()` now populates
+  `change_summary` on the request.
+- `reviewer/providers.py` — `ReasoningRequest` gains a `change_summary`
+  field (list of bullet strings).
+- `reviewer/formatter.py` — new `_append_change_summary()` helper.
+  `format_markdown()` accepts optional `change_summary_bullets` parameter
+  and renders the summary after decision/risk, before findings/provider
+  review.
+- `reviewer/action.py` — `run()` and `run_local_review()` now pass
+  change summary to `format_markdown()`.
+- `reviewer/validation/runner.py` — passes change summary to
+  `format_markdown()`.
+- 51 new tests in `tests/test_change_summary.py` covering summary
+  generation, formatting, markdown rendering, provider context quality,
+  content signal detection, trust boundary regression, and end-to-end
+  integration.
+- Documentation updated: quality-rubric.md (items 17, 18), validation.md,
+  trust-model.md, architecture-overview.md.
+
+### What did NOT change
+
+- **ScanResult JSON contract** — unchanged.  Change summary is
+  markdown-only.
+- **Scoring / decision logic** — unchanged.
+- **Deterministic checks** — unchanged.
+- **Provider trust level** — unchanged.  Provider output remains
+  non-authoritative.
+- **Finding categories / taxonomy** — unchanged.
+- **Provider evidence discipline (ADR-046)** — unchanged.
+
+### Deferred concerns
+
+- **Full AST-aware extraction** — still deferred.  Current approach
+  uses path segments and content regex, not AST parsing.
+- **Richer diff/function extraction** — may still improve quality later.
+  True unified diff hunks are not yet extracted; current approach uses
+  full file content and bounded excerpts.
+- **Provider-generated authoritative findings** — still deferred.
+- **Prompt budgeting** — current bounds (8 targets, 2500 chars, 3000 char
+  full-file threshold) are practical heuristics.  May need refinement as
+  more real PRs are tested.

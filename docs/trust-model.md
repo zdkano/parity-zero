@@ -9,6 +9,7 @@ parity-zero produces several distinct types of output. They have different trust
 | Output Type | Authoritative? | Affects Scoring? | In ScanResult JSON? | In Markdown? |
 |---|---|---|---|---|
 | **Finding** | Yes | Yes | Yes | Yes |
+| **Change Summary** | N/A (factual) | No | No | Yes — short "What Changed" section (ADR-047) |
 | **ReviewConcern** | No | No | No | Fallback only (suppressed when provider review is present — ADR-045) |
 | **ReviewObservation** | No | No | No | Fallback only (suppressed when provider review is present — ADR-045) |
 | **ProviderReviewItem** | No | No | No | Yes — primary non-authoritative review surface (ADR-045) |
@@ -42,6 +43,16 @@ Findings are not vague security prose. Each finding must be:
 - tied to a specific file and (where possible) line range
 - categorised according to the taxonomy
 - rated for both severity and confidence independently
+
+## Change Summary (ADR-047)
+
+The **change summary** is a short, factual "What Changed" section rendered near the top of the markdown review.
+
+- The summary is **deterministic** — generated from changed file paths, review bundle metadata, and plan signals. No LLM involvement.
+- The summary is **factual, not judgmental** — it describes what changed (routes, auth, models, etc.), not what is risky or what needs attention.
+- The summary **does not affect scoring** — it is markdown-only and does not appear in `ScanResult` JSON.
+- The summary **does not affect trust boundaries** — it is a presentation aid, not an authoritative or non-authoritative output.
+- Absent when there are no meaningful changes to summarize.
 
 ## ReviewConcern
 

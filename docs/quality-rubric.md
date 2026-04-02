@@ -157,10 +157,31 @@ Provider review items are now held to stronger evidence-discipline expectations:
 The markdown output follows a **provider-first** hierarchy:
 
 1. **Deterministic findings** — authoritative, drive scoring and decision. Always shown.
-2. **Provider security review** — primary non-authoritative review surface. Shown when structured provider review items exist (up to 8 items).
-3. **Heuristic concerns and observations** — fallback non-authoritative sections. Shown **only** when no provider review is present.
+2. **Deterministic change summary** — short factual "what changed" section (ADR-047). Shown when meaningful changes are detected.
+3. **Provider security review** — primary non-authoritative review surface. Shown when structured provider review items exist (up to 8 items).
+4. **Heuristic concerns and observations** — fallback non-authoritative sections. Shown **only** when no provider review is present.
 
 This ensures the highest-quality review surface (structured provider reasoning with evidence, kind, category, and confidence) takes precedence over heuristic plan-level and file-level notes. Internal generation of concerns and observations is unchanged — they remain available on `AnalysisResult` and are still generated for traceability and fallback. Only their markdown display is conditional.
+
+### 17. Deterministic Change Summary (ADR-047)
+
+Reviews now include a short factual **"What Changed"** section near the top:
+
+- Generated deterministically from changed file paths, review bundle metadata, and review plan signals.
+- Factual, not judgmental — describes what changed (e.g. "route/endpoint changed", "auth file changed"), not what is risky.
+- Compact bulleted format. Does not add verbosity.
+- Does not appear in `ScanResult` JSON — markdown-only.
+- Absent when there are no meaningful changes to summarize.
+
+### 18. Diff-Aware Fuller Provider Context (ADR-047)
+
+Provider review prompts now include diff-aware and fuller bounded context:
+
+- Small relevant files (under 3000 chars) included in full for high-priority review targets.
+- File-level context annotations describe file role and focus areas.
+- Related code context (route+controller, auth+validation groupings) included for review units.
+- Prompt size remains bounded — max 8 targets, max 2500 chars per excerpt.
+- Provider output remains non-authoritative regardless of context quality.
 
 ## What Remains Subjective
 
