@@ -1,4 +1,4 @@
-"""Reasoning input assembly for parity-zero (ADR-025).
+"""Reasoning input assembly for parity-zero (ADR-025, ADR-047).
 
 Builds a structured ``ReasoningRequest`` from the reviewer pipeline context:
 - ReviewPlan (focus areas, flags, guidance)
@@ -9,12 +9,13 @@ Builds a structured ``ReasoningRequest`` from the reviewer pipeline context:
 - Existing concerns and observations
 
 The assembled request makes explicit:
-- what changed
+- what changed (deterministic change summary — ADR-047)
 - what deserves scrutiny
 - what baseline context matters
 - what memory context matters
 - what observations/concerns already exist
 - **bounded code evidence** for the most relevant review targets (ADR-043)
+- **diff-aware fuller changed-file context** for review units (ADR-047)
 
 This is a **first-class part of the reviewer pipeline** — it bridges the
 reviewer's structured context and the reasoning provider interface.
@@ -22,11 +23,13 @@ reviewer's structured context and the reasoning provider interface.
 Phase 1: focuses on structure and clarity.  Prompt wording optimisation
 is deferred to later iterations when provider integration is live.
 
-See ADR-025 for the decision record and ADR-043 for code evidence.
+See ADR-025 for the decision record, ADR-043 for code evidence,
+and ADR-047 for diff-aware context and change summary.
 """
 
 from __future__ import annotations
 
+from reviewer.change_summary import build_change_summary
 from reviewer.models import (
     PullRequestContext,
     ReviewBundle,
@@ -51,6 +54,13 @@ _MAX_RELATED_CHARS = 1200
 
 # Maximum character length for a compact related-context excerpt.
 _MAX_COMPACT_EXCERPT_CHARS = 400
+
+# ADR-047: Threshold for including full file content instead of excerpts.
+# Files smaller than this are included in full for better review context.
+_FULL_FILE_THRESHOLD = 3000
+
+# ADR-047: Maximum chars for a diff-context annotation per file.
+_MAX_DIFF_ANNOTATION_CHARS = 500
 
 # Review reason priority order — higher-priority items are selected first.
 _REASON_PRIORITY: dict[str, int] = {
@@ -89,10 +99,13 @@ def build_reasoning_request(
     """
     request = ReasoningRequest()
 
+    # -- Deterministic change summary (ADR-047) --
+    request.change_summary = build_change_summary(bundle, plan)
+
     # -- Changed files summary --
     request.changed_files_summary = _build_file_summaries(ctx, bundle)
 
-    # -- Bounded code evidence from ReviewBundle (ADR-043) --
+    # -- Bounded code evidence from ReviewBundle (ADR-043, ADR-047) --
     request.review_targets = _build_review_targets(bundle)
 
     # -- Plan context --
@@ -185,6 +198,9 @@ def _build_review_targets(bundle: ReviewBundle | None) -> list[dict[str, str]]:
     """Build bounded, prioritized review targets with code evidence.
 
     ADR-046: Prefers complete bounded review units over tiny snippets.
+    ADR-047: Includes diff-aware context — full file content for small
+    relevant files and file-level change annotations.
+
     For security-relevant items (sensitive_auth, api_surface, auth_area),
     includes related context from the same review unit when available.
 
@@ -285,13 +301,38 @@ def _bounded_excerpt_compact(content: str, max_chars: int = 400) -> str:
 
 
 def _bundle_item_to_target(item: ReviewBundleItem) -> dict[str, str]:
-    """Convert a single ReviewBundleItem into a review target dict."""
+    """Convert a single ReviewBundleItem into a review target dict.
+
+    ADR-047: For small/moderate files (under ``_FULL_FILE_THRESHOLD``),
+    includes the full file content instead of a truncated excerpt.
+    This gives the provider complete bounded review units for routes,
+    controllers, validation, and model files.
+
+    Also adds a ``file_context`` annotation describing what kind of file
+    this is based on its review reason and focus areas.
+    """
+    # ADR-047: Prefer full file content for small relevant files.
+    is_high_priority = item.review_reason in (
+        "sensitive_auth", "api_surface", "auth_area", "sensitive_path",
+    )
+    content_len = len(item.content) if item.content else 0
+
+    if is_high_priority and 0 < content_len <= _FULL_FILE_THRESHOLD:
+        code_excerpt = item.content
+    else:
+        code_excerpt = _bounded_excerpt(item.content)
+
     target: dict[str, str] = {
         "path": item.path,
         "reason": item.review_reason,
         "focus_areas": ", ".join(item.focus_areas) if item.focus_areas else "",
-        "code_excerpt": _bounded_excerpt(item.content),
+        "code_excerpt": code_excerpt,
     }
+
+    # ADR-047: Add file-level context annotation.
+    file_ctx = _build_file_context_annotation(item)
+    if file_ctx:
+        target["file_context"] = file_ctx
 
     if item.related_paths:
         target["related_paths"] = ", ".join(item.related_paths)
@@ -303,6 +344,37 @@ def _bundle_item_to_target(item: ReviewBundleItem) -> dict[str, str]:
         target["baseline_context"] = "; ".join(item.baseline_context)
 
     return target
+
+
+def _build_file_context_annotation(item: ReviewBundleItem) -> str:
+    """Build a short annotation describing the file's role and change type.
+
+    ADR-047: This helps the provider understand what the file is and why
+    it matters, without requiring the provider to guess from the path alone.
+    """
+    parts: list[str] = []
+
+    if item.review_reason == "sensitive_auth":
+        parts.append("sensitive auth file")
+    elif item.review_reason == "api_surface":
+        parts.append("API surface file")
+    elif item.review_reason == "auth_area":
+        parts.append("auth-related file")
+    elif item.review_reason == "sensitive_path":
+        parts.append("sensitive path")
+
+    if item.focus_areas:
+        parts.append(f"focus: {', '.join(item.focus_areas[:3])}")
+
+    if item.content:
+        content_len = len(item.content)
+        if content_len <= _FULL_FILE_THRESHOLD:
+            parts.append("full file included")
+        else:
+            parts.append(f"excerpt from {content_len} chars")
+
+    annotation = "; ".join(parts)
+    return annotation[:_MAX_DIFF_ANNOTATION_CHARS] if annotation else ""
 
 
 def _bounded_excerpt(content: str) -> str:

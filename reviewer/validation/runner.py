@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from reviewer.change_summary import build_change_summary
 from reviewer.engine import AnalysisResult, analyse, derive_decision_and_risk
 from reviewer.formatter import format_markdown
 from reviewer.models import PRContent, PullRequestContext
@@ -351,12 +352,14 @@ def run_scenario(scenario: ValidationScenario) -> ValidationResult:
     )
 
     # Format markdown
+    change_bullets = build_change_summary(bundle=analysis.bundle)
     markdown = format_markdown(
         scan_result,
         concerns=analysis.concerns,
         observations=analysis.observations,
         provider_notes=analysis.provider_notes,
         provider_review=analysis.provider_review,
+        change_summary_bullets=change_bullets,
     )
 
     # Evaluate provider gate independently for gate assertions

@@ -3,12 +3,13 @@
 Converts a ScanResult into a developer-friendly markdown summary suitable
 for posting as a GitHub PR comment.
 
-Output hierarchy reflects the provider-first review model (ADR-045):
+Output hierarchy reflects the provider-first review model (ADR-045, ADR-047):
 
 1. Deterministic findings — authoritative, drive scoring.
-2. Provider security review — primary non-authoritative review surface.
+2. Short deterministic change summary — factual "what changed" (ADR-047).
+3. Provider security review — primary non-authoritative review surface.
    When present, this is the main explanatory/review layer.
-3. Heuristic concerns/observations — shown only as minimal fallback
+4. Heuristic concerns/observations — shown only as minimal fallback
    when provider review is absent or as unique high-value support signals.
 
 When provider review is present and has items, heuristic concern and
@@ -55,13 +56,15 @@ def format_markdown(
     observations: list[ReviewObservation] | None = None,
     provider_notes: list[CandidateNote] | None = None,
     provider_review: ProviderReview | None = None,
+    change_summary_bullets: list[str] | None = None,
 ) -> str:
     """Render a ScanResult as a markdown PR summary.
 
-    The output hierarchy is (ADR-045):
+    The output hierarchy is (ADR-045, ADR-047):
     1. Deterministic findings (authoritative)
-    2. Provider security review (primary non-authoritative review body)
-    3. Heuristic concerns/observations (fallback when no provider review)
+    2. Short deterministic change summary (what changed — ADR-047)
+    3. Provider security review (primary non-authoritative review body)
+    4. Heuristic concerns/observations (fallback when no provider review)
 
     When provider review is present and has items, heuristic concern and
     observation sections are suppressed.  This avoids stacked competing
@@ -77,6 +80,9 @@ def format_markdown(
             whenever structured provider review is present.
         provider_review: Structured provider review output (ADR-044).
             When present, this becomes the primary review section.
+        change_summary_bullets: Short factual change summary bullets
+            (ADR-047).  Rendered near the top of the review to help
+            orient the reader before detailed review content.
 
     Returns:
         A markdown string suitable for a GitHub PR comment.
@@ -91,6 +97,9 @@ def format_markdown(
     badge = _DECISION_BADGES.get(result.decision, result.decision.value)
     lines.append(f"**Decision:** {badge} · **Risk:** {_risk_bar(result.risk_score)}")
     lines.append("")
+
+    # -- Change summary (ADR-047) --
+    _append_change_summary(lines, change_summary_bullets)
 
     counts = result.summary_counts
     total = sum(counts.values())
@@ -147,6 +156,26 @@ def format_markdown(
     _append_provider_notes(lines, provider_notes, provider_review)
     _append_footer(lines, result)
     return "\n".join(lines)
+
+
+def _append_change_summary(
+    lines: list[str],
+    bullets: list[str] | None,
+) -> None:
+    """Append a short deterministic change summary section (ADR-047).
+
+    The summary is factual, not judgmental — it describes what changed,
+    not what is risky or what needs attention.  That remains the provider
+    review's job.
+    """
+    if not bullets:
+        return
+
+    lines.append("### 📝 What Changed")
+    lines.append("")
+    for bullet in bullets:
+        lines.append(f"- {bullet}")
+    lines.append("")
 
 
 def _append_provider_review(
