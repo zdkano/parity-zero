@@ -173,9 +173,9 @@ Reviews now include a short factual **"What Changed"** section near the top:
 - Does not appear in `ScanResult` JSON — markdown-only.
 - Absent when there are no meaningful changes to summarize.
 
-### 18. Diff-Aware Fuller Provider Context (ADR-047)
+### 18. Fuller Bounded Changed-File Provider Context (ADR-047)
 
-Provider review prompts now include diff-aware and fuller bounded context:
+Provider review prompts now include fuller bounded changed-file context:
 
 - Small relevant files (under 3000 chars) included in full for high-priority review targets.
 - File-level context annotations describe file role and focus areas.

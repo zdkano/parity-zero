@@ -15,7 +15,7 @@ The assembled request makes explicit:
 - what memory context matters
 - what observations/concerns already exist
 - **bounded code evidence** for the most relevant review targets (ADR-043)
-- **diff-aware fuller changed-file context** for review units (ADR-047)
+- **fuller bounded changed-file context** for review units (ADR-047)
 
 This is a **first-class part of the reviewer pipeline** — it bridges the
 reviewer's structured context and the reasoning provider interface.
@@ -24,7 +24,7 @@ Phase 1: focuses on structure and clarity.  Prompt wording optimisation
 is deferred to later iterations when provider integration is live.
 
 See ADR-025 for the decision record, ADR-043 for code evidence,
-and ADR-047 for diff-aware context and change summary.
+and ADR-047 for fuller changed-file context and change summary.
 """
 
 from __future__ import annotations
@@ -198,8 +198,8 @@ def _build_review_targets(bundle: ReviewBundle | None) -> list[dict[str, str]]:
     """Build bounded, prioritized review targets with code evidence.
 
     ADR-046: Prefers complete bounded review units over tiny snippets.
-    ADR-047: Includes diff-aware context — full file content for small
-    relevant files and file-level change annotations.
+    ADR-047: Includes fuller bounded changed-file context — full file
+    content for small relevant files and file-level change annotations.
 
     For security-relevant items (sensitive_auth, api_surface, auth_area),
     includes related context from the same review unit when available.

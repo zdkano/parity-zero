@@ -2572,7 +2572,7 @@ Apply a focused hardening pass with three layers:
 
 ---
 
-## ADR-047: Deterministic Change Summary and Diff-Aware Fuller Provider Context
+## ADR-047: Deterministic Change Summary and Fuller Bounded Changed-File Provider Context
 
 ### Status: Accepted
 
@@ -2583,8 +2583,8 @@ final review output lacks a short factual "what changed" summary at the
 top, making it harder for developers to quickly orient themselves before
 reading detailed review comments.  Additionally, provider review still
 relies too heavily on bounded snippets and metadata rather than a better
-combination of deterministic change summary, diff-aware evidence, and
-fuller changed-file context for small relevant files.  This can lead to
+combination of deterministic change summary, change-summary plus fuller
+changed-file context, and full-file inclusion for small relevant files.  This can lead to
 speculative commentary, missing the real focus of the PR, and weaker
 grounding across related route/controller/validation/model changes.
 
@@ -2598,7 +2598,7 @@ Two focused improvements:
    Factual and compact — describes what changed without judgment.
    Implemented in `reviewer/change_summary.py`.
 
-2. **Diff-aware fuller provider context** — provider prompts now include:
+2. **Fuller bounded changed-file provider context** — provider prompts now include:
    - Full file content for small relevant files (under 3000 chars) when
      the file has a high-priority review reason (sensitive_auth,
      api_surface, auth_area, sensitive_path).
