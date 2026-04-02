@@ -55,6 +55,10 @@ _VALIDATION_CONTENT_PATTERNS = [
     re.compile(r"(Joi\.|yup\.|zod\.|Schema\(|validator)", re.IGNORECASE),
 ]
 
+# Maximum characters of file content to sample for content-pattern matching.
+# Keeps classification fast without reading entire large files.
+_MAX_CONTENT_SAMPLE_CHARS = 3000
+
 
 def build_change_summary(
     bundle: ReviewBundle | None = None,
@@ -180,8 +184,8 @@ def _has_content_signal(content: str, patterns: list[re.Pattern]) -> bool:
     """Check if file content matches any of the given patterns."""
     if not content:
         return False
-    # Only check the first 3000 chars to keep it fast
-    sample = content[:3000]
+    # Only check the first portion of content to keep classification fast.
+    sample = content[:_MAX_CONTENT_SAMPLE_CHARS]
     return any(p.search(sample) for p in patterns)
 
 

@@ -56,7 +56,7 @@ def _make_scan_result(**overrides) -> ScanResult:
     defaults = {
         "repo": "test/repo",
         "pr_number": 1,
-        "commit_sha": "abc1234567890",
+        "commit_sha": "abc1234abc1234abc1234abc1234abc1234abc12",
         "ref": "main",
         "decision": Decision.PASS,
         "risk_score": 0,
@@ -519,6 +519,7 @@ class TestContentSignalDetection:
         assert not _has_content_signal("print('hello')", _AUTH_CONTENT_PATTERNS)
 
     def test_empty_content(self):
+        """Empty or None content does not match any signal pattern."""
         assert not _has_content_signal("", _ROUTE_CONTENT_PATTERNS)
         assert not _has_content_signal(None, _ROUTE_CONTENT_PATTERNS)
 
