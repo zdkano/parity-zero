@@ -42,7 +42,15 @@ from schemas.findings import Finding
 _MAX_REVIEW_TARGETS = 8
 
 # Maximum character length for a code excerpt per review target.
-_MAX_EXCERPT_CHARS = 1500
+# ADR-046: Increased from 1500 to 2500 to provide more complete bounded
+# review units (complete functions/handlers) rather than tiny snippets.
+_MAX_EXCERPT_CHARS = 2500
+
+# Maximum total characters for all related code excerpts combined.
+_MAX_RELATED_CHARS = 1200
+
+# Maximum character length for a compact related-context excerpt.
+_MAX_COMPACT_EXCERPT_CHARS = 400
 
 # Review reason priority order — higher-priority items are selected first.
 _REASON_PRIORITY: dict[str, int] = {
@@ -176,9 +184,9 @@ def _build_file_summaries(
 def _build_review_targets(bundle: ReviewBundle | None) -> list[dict[str, str]]:
     """Build bounded, prioritized review targets with code evidence.
 
-    Selects the most security-relevant bundle items and includes
-    bounded code excerpts for each.  This gives the provider actual
-    code to reason about instead of just file path metadata.
+    ADR-046: Prefers complete bounded review units over tiny snippets.
+    For security-relevant items (sensitive_auth, api_surface, auth_area),
+    includes related context from the same review unit when available.
 
     Prioritization:
       1. sensitive_auth — files in both sensitive and auth areas
@@ -198,12 +206,82 @@ def _build_review_targets(bundle: ReviewBundle | None) -> list[dict[str, str]]:
         key=lambda item: _REASON_PRIORITY.get(item.review_reason, 99),
     )
 
+    # Build a lookup of all bundle items by path for related-context inclusion.
+    items_by_path: dict[str, ReviewBundleItem] = {
+        item.path: item for item in bundle.items
+    }
+
     targets: list[dict[str, str]] = []
-    for item in prioritized[:_MAX_REVIEW_TARGETS]:
+    included_paths: set[str] = set()
+
+    for item in prioritized:
+        if len(targets) >= _MAX_REVIEW_TARGETS:
+            break
+        if item.path in included_paths:
+            continue
+
         target = _bundle_item_to_target(item)
+
+        # ADR-046: For high-priority items, include compact related-context
+        # excerpts to form more complete review units.
+        if item.review_reason in ("sensitive_auth", "api_surface", "auth_area"):
+            related_excerpts = _gather_related_excerpts(
+                item, items_by_path, included_paths,
+            )
+            if related_excerpts:
+                target["related_code"] = related_excerpts
+
         targets.append(target)
+        included_paths.add(item.path)
 
     return targets
+
+
+def _gather_related_excerpts(
+    item: ReviewBundleItem,
+    items_by_path: dict[str, ReviewBundleItem],
+    already_included: set[str],
+) -> str:
+    """Gather compact code excerpts from related paths for review context.
+
+    Returns a combined string of related code context, bounded to avoid
+    prompt explosion.  Only includes paths that are not already primary
+    review targets.
+
+    ADR-046: This gives the provider route+controller or route+validation
+    groupings rather than isolated code fragments.
+    """
+    if not item.related_paths:
+        return ""
+
+    excerpts: list[str] = []
+    total_chars = 0
+
+    for rel_path in item.related_paths[:3]:
+        if rel_path in already_included:
+            continue
+        rel_item = items_by_path.get(rel_path)
+        if not rel_item or not rel_item.content:
+            continue
+        # Compact excerpt — smaller than primary targets.
+        excerpt = _bounded_excerpt_compact(rel_item.content, _MAX_COMPACT_EXCERPT_CHARS)
+        if not excerpt:
+            continue
+        if total_chars + len(excerpt) > _MAX_RELATED_CHARS:
+            break
+        excerpts.append(f"--- {rel_path} ---\n{excerpt}")
+        total_chars += len(excerpt)
+
+    return "\n".join(excerpts)
+
+
+def _bounded_excerpt_compact(content: str, max_chars: int = 400) -> str:
+    """Return a compact bounded excerpt for related context inclusion."""
+    if not content:
+        return ""
+    if len(content) <= max_chars:
+        return content
+    return content[:max_chars] + "\n... [truncated]"
 
 
 def _bundle_item_to_target(item: ReviewBundleItem) -> dict[str, str]:
@@ -230,12 +308,47 @@ def _bundle_item_to_target(item: ReviewBundleItem) -> dict[str, str]:
 def _bounded_excerpt(content: str) -> str:
     """Return a bounded code excerpt from file content.
 
-    Truncates to ``_MAX_EXCERPT_CHARS`` characters.  If truncated,
-    appends a marker so the provider knows the content was cut.
+    ADR-046: Prefers complete bounded review units (function bodies,
+    route handlers) over arbitrary truncation.  When content fits within
+    the limit, returns it in full.  When truncation is needed, attempts
+    to break at a natural boundary (function/class definition) rather
+    than mid-statement.
+
     Returns empty string for empty/None content.
     """
     if not content:
         return ""
     if len(content) <= _MAX_EXCERPT_CHARS:
         return content
-    return content[:_MAX_EXCERPT_CHARS] + "\n... [truncated]"
+
+    # Try to find a natural boundary near the limit.
+    excerpt = content[:_MAX_EXCERPT_CHARS]
+    boundary = _find_natural_boundary(excerpt)
+    if boundary > _MAX_EXCERPT_CHARS // 2:
+        return content[:boundary] + "\n... [truncated at function boundary]"
+    return excerpt + "\n... [truncated]"
+
+
+def _find_natural_boundary(text: str) -> int:
+    """Find the best natural code boundary (function/class def) position.
+
+    Searches backward from the end of text for a line starting with
+    a function or class definition, returning the position just before
+    that line.  Returns 0 if no boundary is found.
+    """
+    # Common function/class definition patterns across languages.
+    boundary_markers = (
+        "\ndef ", "\nclass ", "\nasync def ",
+        "\nfunction ", "\nexport function ", "\nexport default function ",
+        "\nconst ", "\nlet ",
+        "\npub fn ", "\nfn ",
+        "\nfunc ",
+        "\npublic ", "\nprivate ", "\nprotected ",
+        "\nrouter.", "\napp.",
+    )
+    best = 0
+    for marker in boundary_markers:
+        pos = text.rfind(marker)
+        if pos > best:
+            best = pos
+    return best

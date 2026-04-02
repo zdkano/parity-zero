@@ -502,6 +502,8 @@ _DEFAULT_TIMEOUT_SECONDS = 30
 _MAX_CANDIDATE_NOTES = 10
 
 # System prompt that constrains the model to security-review candidate notes.
+# ADR-046: Strengthened evidence discipline, category discipline, and
+# suppression of speculative/weak claims.
 _SYSTEM_PROMPT = (
     "You are an experienced security code reviewer assisting with a GitHub "
     "pull request review.  You have access to contextual information about "
@@ -518,7 +520,28 @@ _SYSTEM_PROMPT = (
     "security observation.\n"
     "- Express genuine uncertainty — say 'may', 'could', 'worth verifying' "
     "when you are not certain.\n"
-    "- Include brief evidence quotes or references from the code when useful.\n\n"
+    "- Include brief evidence quotes or references from the code when useful.\n"
+    "- Prefer fewer, stronger items over many weak ones.\n\n"
+    "Evidence discipline:\n"
+    "- Do NOT claim a missing authorization, authentication, or validation "
+    "check unless the absence is directly supported by visible code evidence.\n"
+    "- If a function or flow is incomplete or truncated, prefer 'review "
+    "attention' or 'worth verifying' language rather than asserting a "
+    "likely issue.  Use the review_attention kind for these.\n"
+    "- Do NOT produce business-quality or data-quality commentary unless "
+    "there is a concrete security implication visible in the code.\n"
+    "- Do NOT treat test files, fixture data, or test support files as "
+    "security-relevant unless there is concrete evidence of a real "
+    "exposure (e.g. hardcoded production credentials in test fixtures).\n"
+    "- Positive controls (good security practices) should only be noted "
+    "when clearly visible in the provided code — do not infer them.\n\n"
+    "Category discipline:\n"
+    "- Only assign categories (authentication, authorization, input_validation, "
+    "secrets, insecure_configuration, dependency_risk) when the visible "
+    "code evidence directly supports that category.\n"
+    "- Do NOT assign categories based only on file names, directory names, "
+    "or stereotypical associations.\n"
+    "- When unsure of the category, use an empty string.\n\n"
     "Do NOT:\n"
     "- Restate deterministic findings already listed in the context.\n"
     "- Repeat concerns or observations already provided.\n"
@@ -527,7 +550,9 @@ _SYSTEM_PROMPT = (
     "- Produce generic security best-practice advice unrelated to the changes.\n"
     "- Produce vague observations based only on file names or paths.\n"
     "- Summarise what was analysed — only provide new review items.\n"
-    "- Exaggerate risk — do not claim vulnerabilities without evidence.\n\n"
+    "- Exaggerate risk — do not claim vulnerabilities without evidence.\n"
+    "- Claim 'missing' checks when you can only see part of a flow — "
+    "prefer 'verify that X is handled' over 'X is missing'.\n\n"
     "Output format:\n"
     "Return ONLY a JSON array of structured review objects.  Each object must have:\n"
     "  {\n"
@@ -604,7 +629,7 @@ def _format_user_prompt(request: ReasoningRequest) -> str:
             file_lines.append("  - " + ", ".join(parts))
         sections.append("Changed files:\n" + "\n".join(file_lines))
 
-    # -- Review targets with code evidence (ADR-043) --
+    # -- Review targets with code evidence (ADR-043, ADR-046) --
     if request.review_targets:
         target_blocks = []
         for t in request.review_targets:
@@ -622,6 +647,11 @@ def _format_user_prompt(request: ReasoningRequest) -> str:
             if t.get("code_excerpt"):
                 lang = _infer_language(t.get("path", ""))
                 block_lines.append(f"Code:\n```{lang}\n{t['code_excerpt']}\n```")
+            # ADR-046: Include related code context for review units.
+            if t.get("related_code"):
+                block_lines.append(
+                    f"Related code context:\n```\n{t['related_code']}\n```"
+                )
             target_blocks.append("\n".join(block_lines))
         sections.append(
             "REVIEW TARGETS — code evidence for review (comment only when "
