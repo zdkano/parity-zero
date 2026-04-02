@@ -46,6 +46,12 @@ _MAX_REVIEW_TARGETS = 8
 # review units (complete functions/handlers) rather than tiny snippets.
 _MAX_EXCERPT_CHARS = 2500
 
+# Maximum total characters for all related code excerpts combined.
+_MAX_RELATED_CHARS = 1200
+
+# Maximum character length for a compact related-context excerpt.
+_MAX_COMPACT_EXCERPT_CHARS = 400
+
 # Review reason priority order — higher-priority items are selected first.
 _REASON_PRIORITY: dict[str, int] = {
     "sensitive_auth": 0,
@@ -248,8 +254,6 @@ def _gather_related_excerpts(
     if not item.related_paths:
         return ""
 
-    # Maximum total characters for all related excerpts combined.
-    max_related_chars = 1200
     excerpts: list[str] = []
     total_chars = 0
 
@@ -260,10 +264,10 @@ def _gather_related_excerpts(
         if not rel_item or not rel_item.content:
             continue
         # Compact excerpt — smaller than primary targets.
-        excerpt = _bounded_excerpt_compact(rel_item.content, 400)
+        excerpt = _bounded_excerpt_compact(rel_item.content, _MAX_COMPACT_EXCERPT_CHARS)
         if not excerpt:
             continue
-        if total_chars + len(excerpt) > max_related_chars:
+        if total_chars + len(excerpt) > _MAX_RELATED_CHARS:
             break
         excerpts.append(f"--- {rel_path} ---\n{excerpt}")
         total_chars += len(excerpt)
