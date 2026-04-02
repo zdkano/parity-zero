@@ -4,7 +4,7 @@ The PR validation harness is a scenario-based testing and evaluation framework f
 
 ## Purpose
 
-The harness answers: "Does the reviewer behave correctly for this kind of PR?"
+The harness answers: "Does the reviewer behave correctly for this kind of PR?" ADR-046 adds focused tests for evidence-discipline validation — speculative claim suppression, test/fixture noise reduction, confidence bounding, and bounded review unit assembly.
 
 It runs curated PR scenarios through the **full reviewer pipeline** — context building, planning, bundling, analysis, scoring, and formatting — and evaluates the output against declarative expectations.
 

@@ -2497,3 +2497,75 @@ output, not what drives the review decision.
   number of unique heuristic items alongside provider review when they
   add genuinely non-overlapping value. This was intentionally deferred
   in favour of clean suppression.
+
+## ADR-046: Provider Quality Hardening — Evidence Discipline and Bounded Review Units
+
+### Status: Accepted
+
+### Context
+
+Provider-first review output (ADR-044, ADR-045) is now more central, but
+it is still too unstable and speculative.  For the same or similar PRs,
+provider review items can drift between plausible but weak authorization
+concerns, generic validation concerns, noisy fixture/test commentary, and
+assertions about "missing checks" when the visible code is incomplete.
+
+One root cause is that the provider sometimes sees too little code
+context — enough to guess, but not enough to judge safely.
+
+### Decision
+
+Apply a focused hardening pass with three layers:
+
+1. **Tighten provider prompting** — the system prompt now explicitly
+   requires evidence discipline: no speculative missing-control claims
+   without visible code evidence, prefer "review attention" / "worth
+   verifying" language for incomplete flows, no test/fixture commentary
+   unless concrete security evidence exists, and category assignment only
+   when code evidence directly supports the category.
+
+2. **Post-parse evidence discipline** — `apply_evidence_discipline()` in
+   `provider_review.py` runs after normalisation.  Rules:
+   - Speculative missing-control claims without evidence → suppressed;
+     with evidence → softened to `review_attention` + `low` confidence.
+   - Test/fixture items without concrete security evidence → suppressed.
+   - Non-security commentary (code quality, docs, performance) → suppressed.
+   - Filename-only category guesses → suppressed.
+   - Items without evidence → confidence bounded to `low`.
+   - Overlapping weak items on same category+path → collapsed to strongest.
+
+3. **Improved code-evidence assembly** — excerpt limit increased from
+   1500 to 2500 chars, truncation uses natural function/class boundaries
+   (`_find_natural_boundary()`), and high-priority review targets include
+   related code context from route/controller/validation groupings
+   (`_gather_related_excerpts()`).
+
+### What changed
+
+- `reviewer/providers.py` — system prompt strengthened with evidence-
+  discipline and category-discipline sections.
+- `reviewer/provider_review.py` — added `apply_evidence_discipline()`
+  with five filtering rules and `_collapse_weak_duplicates()`.  Called
+  automatically in `parse_and_validate_provider_review()`.
+- `reviewer/prompt_builder.py` — excerpt limit 1500→2500, natural
+  boundary truncation, related-context grouping for review targets.
+- 51 new tests in `tests/test_evidence_discipline.py`.
+- Documentation updated: quality-rubric.md, validation.md, trust-model.md,
+  architecture-overview.md.
+
+### What did NOT change
+
+- **ScanResult JSON contract** — unchanged.
+- **Scoring / decision logic** — unchanged.
+- **Deterministic checks** — unchanged.
+- **Provider trust level** — unchanged.  Provider output remains
+  non-authoritative.
+- **Finding categories / taxonomy** — unchanged.
+
+### Deferred concerns
+
+- **Full verifier/promotion model** — still deferred.
+- **Provider-generated authoritative findings** — still deferred.
+- **Some instability may remain** until broader evaluation/tuning.
+- **Richer evidence selection** (AST-based function extraction, cross-file
+  data flow) may further improve quality later.

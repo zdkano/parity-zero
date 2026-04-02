@@ -139,6 +139,19 @@ When structured provider review items (`ProviderReviewItem`) are present, they:
 
 When structured review items are present, legacy provider candidate notes are also **suppressed** in markdown output to avoid redundancy. The legacy "Additional Review Notes" section is replaced by the structured review section.
 
+### 16. Evidence Discipline for Provider Review (ADR-046)
+
+Provider review items are now held to stronger evidence-discipline expectations:
+
+- **Speculative missing-control claims** (e.g. "missing authorization") are suppressed when no code evidence supports the assertion. If evidence is provided, the item is softened to `review_attention` kind with `low` confidence.
+- **Filename-only category guesses** (category assigned based only on file path, not code content) are suppressed.
+- **Test/fixture noise** — items targeting only test or fixture files are suppressed unless they contain concrete security evidence (e.g. hardcoded production credentials).
+- **Non-security commentary** (code quality, documentation, performance) is suppressed.
+- **Confidence bounding** — items with no code evidence are capped at `low` confidence regardless of provider assertion.
+- **Weak duplicate collapse** — overlapping `review_attention`/low-confidence items on the same category and path are collapsed to the strongest item.
+- **Bounded review units** — provider requests now include larger code excerpts (up to 2500 chars per target with natural boundary detection) and related code context (route/controller groupings), providing the provider with more complete review units instead of tiny snippets.
+- Provider prompting explicitly requires evidence discipline: no speculative claims about unseen code, prefer "verify" language over "missing" assertions, no commentary on tests/fixtures without concrete security evidence.
+
 ### 15. Provider-First Review Model (ADR-045)
 
 The markdown output follows a **provider-first** hierarchy:

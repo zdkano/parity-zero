@@ -65,8 +65,7 @@ from reviewer.provider_review import (
     parse_and_validate_provider_review,
 )
 from reviewer.providers import MockProvider, ReasoningRequest
-from reviewer.engine import analyse
-from schemas.findings import ScanResult
+from reviewer.engine import AnalysisResult, analyse, derive_decision_and_risk
 
 
 # ======================================================================
@@ -612,8 +611,8 @@ class TestBoundedReviewUnits:
         assert result == content
 
     def test_bounded_excerpt_at_natural_boundary(self):
-        first_fn = "def first_handler():\n" + "    x = 1\n" * 100
-        second_fn = "\ndef second_handler():\n" + "    y = 2\n" * 100
+        first_fn = "def first_handler():\n" + "    x = 1\n" * 200
+        second_fn = "\ndef second_handler():\n" + "    y = 2\n" * 200
         content = first_fn + second_fn
         assert len(content) > _MAX_EXCERPT_CHARS
 
@@ -632,6 +631,8 @@ class TestBoundedReviewUnits:
         assert boundary == 0
 
     def test_review_targets_include_code(self):
+        """Review targets should carry code excerpts when a bundle is provided."""
+        from reviewer.bundle import build_review_bundle
         files = [
             PRFile(path="src/routes/notes.py", content="router.get('/notes', getAll)\nrouter.delete('/notes/:id', delete)\n"),
             PRFile(path="src/controllers/notes.py", content="def delete(note_id):\n    return db.delete(note_id)\n"),
@@ -648,7 +649,8 @@ class TestBoundedReviewUnits:
             sensitive_paths_touched=["src/routes/notes.py", "src/controllers/notes.py"],
             auth_paths_touched=[],
         )
-        request = build_reasoning_request(ctx=ctx, plan=plan)
+        bundle = build_review_bundle(ctx, plan)
+        request = build_reasoning_request(ctx=ctx, plan=plan, bundle=bundle)
         assert request.has_review_targets
         assert any(t.get("code_excerpt") for t in request.review_targets)
 
@@ -812,11 +814,11 @@ class TestTrustBoundaryPreservation:
             "src/auth/login.py": "def login(req):\n    return auth(req)\n",
         })
         result = analyse(ctx, provider=MockProvider())
-        scan_result = result.scan_result
-        assert isinstance(scan_result, ScanResult)
-        result_dict = scan_result.to_dict()
-        assert "provider_review" not in result_dict
-        assert "provider_notes" not in result_dict
+        assert isinstance(result, AnalysisResult)
+        # AnalysisResult.findings drives scoring — provider_review is separate
+        # and must not appear in the finding list
+        for finding in result.findings:
+            assert finding.source != "provider"
 
     def test_scoring_unchanged_by_provider(self):
         ctx = self._make_ctx({
@@ -824,8 +826,10 @@ class TestTrustBoundaryPreservation:
         })
         result_without = analyse(ctx)
         result_with = analyse(ctx, provider=MockProvider())
-        assert result_without.scan_result.risk_score == result_with.scan_result.risk_score
-        assert result_without.scan_result.decision == result_with.scan_result.decision
+        dec_w, risk_w = derive_decision_and_risk(result_without.findings)
+        dec_p, risk_p = derive_decision_and_risk(result_with.findings)
+        assert risk_w == risk_p
+        assert dec_w == dec_p
 
     def test_deterministic_findings_unchanged(self):
         """Deterministic findings should be identical with or without provider."""
@@ -834,7 +838,7 @@ class TestTrustBoundaryPreservation:
         })
         result_without = analyse(ctx)
         result_with = analyse(ctx, provider=MockProvider())
-        assert len(result_without.scan_result.findings) == len(result_with.scan_result.findings)
+        assert len(result_without.findings) == len(result_with.findings)
 
 
 # ======================================================================
@@ -879,4 +883,4 @@ class TestAuthzSensitiveScenario:
         # Should have some provider review items for auth-sensitive code
         assert result.provider_review is not None
         # The overall result should still be valid
-        assert result.scan_result is not None
+        assert isinstance(result, AnalysisResult)
