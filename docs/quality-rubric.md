@@ -84,7 +84,9 @@ Provider requests now include bounded code evidence from `ReviewBundle` items (A
 
 - The "Security Review" header is always present.
 - The "Provider Notes" section is absent when there are no provider notes.
-- Sections are clearly separated (findings vs concerns vs observations vs provider notes).
+- **Provider-first hierarchy (ADR-045):** When structured provider review items are present, the "🤖 Provider Security Review" section is the primary non-authoritative review body. Heuristic concerns and observations sections are **suppressed** — they appear only as a fallback when no provider review exists.
+- The output hierarchy is: (1) deterministic findings, (2) provider security review, (3) heuristic concerns/observations (fallback).
+- Sections are clearly separated (findings vs provider review vs concerns vs observations vs provider notes).
 - Recommendations are shown inline per finding (💡 marker), not in a separate section.
 - Concern display is capped when multiple concerns target the same paths.
 - Provider notes display is capped at 3 notes for conciseness.
@@ -123,7 +125,7 @@ Detection uses:
 - Content-based signals: route registration decorators, API router instantiation, versioned API paths, CRUD function patterns, auth middleware references, resource controller classes.
 - Non-code files (markdown, JSON, YAML, lockfiles, images) are excluded from content scanning.
 
-### 14. Structured Provider Review Output Is Non-Authoritative (ADR-044)
+### 14. Structured Provider Review Output Is Non-Authoritative (ADR-044, ADR-045)
 
 When structured provider review items (`ProviderReviewItem`) are present, they:
 
@@ -133,8 +135,19 @@ When structured provider review items (`ProviderReviewItem`) are present, they:
 - Require code-level evidence (`evidence` field) — items without evidence context are less useful.
 - Are tied to specific changed file paths where possible.
 - Appear in the markdown summary under "🤖 Provider Security Review" but do **not** create findings, affect scoring, or influence the decision.
+- **Are the primary non-authoritative review surface (ADR-045).** Up to 8 items are shown. When present, heuristic concerns and observations sections are suppressed from the markdown output — provider review replaces them as the main review body below findings.
 
-When structured review items are present, legacy provider candidate notes are **suppressed** in markdown output to avoid redundancy. The legacy "Additional Review Notes" section is replaced by the structured review section.
+When structured review items are present, legacy provider candidate notes are also **suppressed** in markdown output to avoid redundancy. The legacy "Additional Review Notes" section is replaced by the structured review section.
+
+### 15. Provider-First Review Model (ADR-045)
+
+The markdown output follows a **provider-first** hierarchy:
+
+1. **Deterministic findings** — authoritative, drive scoring and decision. Always shown.
+2. **Provider security review** — primary non-authoritative review surface. Shown when structured provider review items exist (up to 8 items).
+3. **Heuristic concerns and observations** — fallback non-authoritative sections. Shown **only** when no provider review is present.
+
+This ensures the highest-quality review surface (structured provider reasoning with evidence, kind, category, and confidence) takes precedence over heuristic plan-level and file-level notes. Internal generation of concerns and observations is unchanged — they remain available on `AnalysisResult` and are still generated for traceability and fallback. Only their markdown display is conditional.
 
 ## What Remains Subjective
 

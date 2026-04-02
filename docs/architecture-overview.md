@@ -51,7 +51,7 @@ ScanResult ──────────────────── structur
   │
   ▼
 Markdown Summary ────────────── developer-facing PR output
-  (findings + concerns + observations + provider review items + provider notes)
+  (findings + provider review [primary] + concerns/observations [fallback])
   │
   ▼ (optional, if PARITY_ZERO_API_URL configured)
 Backend Ingest ──────────────── POST ScanResult to backend API
@@ -72,10 +72,10 @@ Retrieval API ───────────────── GET /runs, GET
 Canonical input combining PR delta (changed files), baseline repository profile, and review memory. Everything downstream operates on this context.
 
 ### ReviewPlan
-Lightweight planning layer that determines review focus areas based on path analysis, baseline context, and memory. Produces plan-level `ReviewConcern` objects.
+Lightweight planning layer that determines review focus areas based on path analysis, baseline context, and memory. Produces plan-level `ReviewConcern` objects (shown in markdown only as fallback when no provider review is present — ADR-045).
 
 ### ReviewBundle
-Per-file evidence aggregation. Classifies files by review reason (sensitive, auth, combined, plain) and enriches them with relevant baseline and memory context.
+Per-file evidence aggregation. Classifies files by review reason (sensitive, auth, combined, plain) and enriches them with relevant baseline and memory context. Produces per-file `ReviewObservation` objects (shown in markdown only as fallback when no provider review is present — ADR-045).
 
 ### Deterministic Checks
 Narrow, high-confidence pattern detectors. Currently: AWS key IDs, PEM private keys, GitHub tokens, CORS wildcards, debug mode, SSL verification disablement. These produce `Finding` objects — the only authoritative output.
@@ -86,8 +86,8 @@ Evaluates whether the PR context is rich enough to justify calling a reasoning p
 ### ReasoningProvider
 Abstract interface for AI reasoning backends. Implementations: `DisabledProvider` (default no-op), `MockProvider` (testing), `GitHubModelsProvider`, `AnthropicProvider`, `OpenAIProvider`. Provider output is **candidate notes only** — non-authoritative.
 
-### ProviderReviewItem / ProviderReview (ADR-044)
-Structured review output from provider invocations. Each `ProviderReviewItem` carries kind, category, title, summary, paths, confidence, evidence, and source. Items are validated, normalised, deduplicated, and bounded (max 8). A `ProviderReview` container is carried on `ReasoningResult` and `AnalysisResult`. Review items are **non-authoritative** — they do not create findings, affect scoring, or change the decision. When present, they supersede legacy candidate notes in the markdown output.
+### ProviderReviewItem / ProviderReview (ADR-044, ADR-045)
+Structured review output from provider invocations. Each `ProviderReviewItem` carries kind, category, title, summary, paths, confidence, evidence, and source. Items are validated, normalised, deduplicated, and bounded (max 8). A `ProviderReview` container is carried on `ReasoningResult` and `AnalysisResult`. Review items are **non-authoritative** — they do not create findings, affect scoring, or change the decision. **Provider review is the primary non-authoritative review surface (ADR-045).** When present, provider review supersedes both heuristic concerns/observations and legacy candidate notes in the markdown output. Concerns and observations become a fallback shown only when no provider review exists.
 
 ### ReviewTrace
 Internal traceability record capturing pipeline decisions: gate results, bundle stats, concern/observation counts, provider invocation outcome. Not exposed in ScanResult or markdown.

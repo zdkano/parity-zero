@@ -30,6 +30,7 @@ parity-zero is in active early development. The reviewer pipeline is functional 
 - PR validation scenario harness
 - **evaluation and benchmarking layer** — 13 curated scenarios, provider comparison, output-quality assertions (ADR-038)
 - **structured provider-first review output** — provider reasoning produces structured review items (`ProviderReviewItem`) with kind, category, evidence, and bounded confidence; non-authoritative (ADR-044)
+- **provider-first review hierarchy** — provider review is now the primary non-authoritative review surface; heuristic concerns/observations become fallback when no provider review is present (ADR-045)
 - **realistic evaluation corpus** — 10 file-backed scenarios for representative PR evaluation, provider comparison, and lightweight scorecard (ADR-039)
 - **repo-level configuration** — optional `.parity-zero.yml` for path exclusions, low-signal paths, and provider-skip paths (ADR-041)
 - stable ScanResult JSON contract

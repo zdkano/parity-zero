@@ -9,9 +9,9 @@ parity-zero produces several distinct types of output. They have different trust
 | Output Type | Authoritative? | Affects Scoring? | In ScanResult JSON? | In Markdown? |
 |---|---|---|---|---|
 | **Finding** | Yes | Yes | Yes | Yes |
-| **ReviewConcern** | No | No | No | Yes |
-| **ReviewObservation** | No | No | No | Yes |
-| **ProviderReviewItem** | No | No | No | Yes (when present) |
+| **ReviewConcern** | No | No | No | Fallback only (suppressed when provider review is present — ADR-045) |
+| **ReviewObservation** | No | No | No | Fallback only (suppressed when provider review is present — ADR-045) |
+| **ProviderReviewItem** | No | No | No | Yes — primary non-authoritative review surface (ADR-045) |
 | **Provider candidate notes** | No | No | No | Yes (when present, superseded by ProviderReviewItem) |
 | **ReviewTrace** | No | No | No | No |
 
@@ -49,7 +49,8 @@ A `ReviewConcern` is a **plan-level** contextual observation about an area that 
 
 - Concerns are **not authoritative** — they do not claim a proven issue exists.
 - Concerns are **not findings** — they do not appear in `ScanResult` or affect scoring.
-- Concerns appear in the markdown summary only.
+- Concerns are still generated internally and available on `AnalysisResult`.
+- **Markdown display:** Concerns are shown in the markdown summary only as a **fallback** — when no structured provider review (`ProviderReview`) is present. When provider review items exist, the concerns section is suppressed in markdown output (ADR-045).
 - Concerns are derived from the `ReviewPlan` — they reflect signals from baseline context, sensitive paths, auth patterns, and review memory.
 
 **Example:** "This PR modifies authentication-related code in a repository with known auth patterns. Consider reviewing session handling changes carefully."
@@ -60,13 +61,14 @@ A `ReviewObservation` is a **per-file** contextual analysis note derived from `R
 
 - Observations are **not authoritative** — they describe why a file is security-relevant, not that it has a proven issue.
 - Observations are **not findings** — they do not appear in `ScanResult` or affect scoring.
-- Observations appear in the markdown summary only.
+- Observations are still generated internally and available on `AnalysisResult`.
+- **Markdown display:** Observations are shown in the markdown summary only as a **fallback** — when no structured provider review (`ProviderReview`) is present. When provider review items exist, the observations section is suppressed in markdown output (ADR-045).
 - Observations connect file-level review reasons, focus areas, baseline context, and memory context into concise explanations.
 - When provider output is available, observations may be **enriched** with provider detail (marked as `+provider_enriched`). Enriched observations use hedged language.
 
 **Example:** "src/auth/login.py is in a sensitive path (src/auth/) and the PR touches authentication logic in a Flask app with known JWT patterns."
 
-## ProviderReviewItem (ADR-044)
+## ProviderReviewItem (ADR-044, ADR-045)
 
 When a reasoning provider is enabled and invoked, it now produces **structured review items** (`ProviderReviewItem`) instead of free-form candidate notes.
 
@@ -75,9 +77,10 @@ When a reasoning provider is enabled and invoked, it now produces **structured r
 - Items are validated, normalised, deduplicated, and bounded (max 8 per invocation) before surfacing.
 - Confidence is capped at `medium` — provider output is never `high` confidence.
 - Items appear in the markdown summary under the "🤖 Provider Security Review" section.
+- **Provider review is the primary non-authoritative review surface** (ADR-045). When structured review items are present, heuristic concerns and observations sections are suppressed in markdown output. The output hierarchy is: (1) deterministic findings, (2) provider security review, (3) heuristic concerns/observations as fallback.
 - Items do **not** appear in `ScanResult` JSON.
 - The pipeline carries structured review output via `ProviderReview` on `ReasoningResult` and `AnalysisResult`.
-- When structured review items are present, legacy provider candidate notes are **suppressed** in the markdown output to avoid redundancy.
+- When structured review items are present, legacy provider candidate notes are also **suppressed** in the markdown output to avoid redundancy.
 - Trust semantics are identical to candidate notes — no provider output is authoritative regardless of how structured it is.
 
 ## Provider Candidate Notes

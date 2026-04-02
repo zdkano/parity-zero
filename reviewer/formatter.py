@@ -3,21 +3,21 @@
 Converts a ScanResult into a developer-friendly markdown summary suitable
 for posting as a GitHub PR comment.
 
-Optionally includes plan-informed review concerns (ADR-022) — contextual
-observations that are clearly distinct from proven findings.
+Output hierarchy reflects the provider-first review model (ADR-045):
 
-Optionally includes per-file review observations (ADR-024) — targeted
-analysis of why specific files deserve scrutiny, derived from ReviewBundle
-evidence.
+1. Deterministic findings — authoritative, drive scoring.
+2. Provider security review — primary non-authoritative review surface.
+   When present, this is the main explanatory/review layer.
+3. Heuristic concerns/observations — shown only as minimal fallback
+   when provider review is absent or as unique high-value support signals.
 
-Optionally includes provider candidate notes (ADR-027) — additional
-security-relevant observations from the reasoning provider, shown only
-when distinct from existing concerns and observations.
+When provider review is present and has items, heuristic concern and
+observation sections are suppressed to avoid stacked competing review
+voices.  The user perceives one main reviewer (the provider), with
+parity-zero acting as the control/normalization/trust framework.
 
-Optionally includes structured provider review items (ADR-044) — the
-primary non-authoritative review surface, driven by provider-first
-structured review output.  When present, these are shown as the main
-provider-driven review section.
+Legacy provider candidate notes are suppressed whenever structured
+provider review items are present.
 
 Design goals (from team.md):
   - clear, practical, and low-noise
@@ -58,21 +58,25 @@ def format_markdown(
 ) -> str:
     """Render a ScanResult as a markdown PR summary.
 
+    The output hierarchy is (ADR-045):
+    1. Deterministic findings (authoritative)
+    2. Provider security review (primary non-authoritative review body)
+    3. Heuristic concerns/observations (fallback when no provider review)
+
+    When provider review is present and has items, heuristic concern and
+    observation sections are suppressed.  This avoids stacked competing
+    review voices and makes the provider the single main review surface.
+
     Args:
         result: The structured scan result to format.
-        concerns: Optional plan-informed review concerns to display
-            in a separate section.  These are clearly distinct from
-            proven findings.
-        observations: Optional per-file review observations to display
-            in a separate section.  These are targeted analysis notes
-            tied to specific files, distinct from both findings and
-            concerns.
-        provider_notes: Optional normalized candidate notes from the
-            reasoning provider, shown in a distinct section when they
-            add value beyond concerns and observations.
-        provider_review: Optional structured provider review output
-            (ADR-044).  When present, this is the primary non-authoritative
-            review section, replacing the legacy provider notes section.
+        concerns: Plan-informed review concerns.  Suppressed in markdown
+            when provider review is present (kept internally as support).
+        observations: Per-file review observations.  Suppressed in
+            markdown when provider review is present (kept internally).
+        provider_notes: Legacy provider candidate notes.  Suppressed
+            whenever structured provider review is present.
+        provider_review: Structured provider review output (ADR-044).
+            When present, this becomes the primary review section.
 
     Returns:
         A markdown string suitable for a GitHub PR comment.
@@ -91,12 +95,18 @@ def format_markdown(
     counts = result.summary_counts
     total = sum(counts.values())
 
+    # ADR-045: When provider review is present and has items, it becomes
+    # the primary review surface.  Heuristic concerns/observations are
+    # suppressed to avoid stacked competing review voices.
+    _has_provider_review = bool(provider_review and provider_review.has_items)
+
     if total == 0:
         lines.append("No security findings identified in this change.")
         lines.append("")
         _append_provider_review(lines, provider_review)
-        _append_concerns(lines, concerns)
-        _append_observations(lines, observations)
+        if not _has_provider_review:
+            _append_concerns(lines, concerns)
+            _append_observations(lines, observations)
         _append_provider_notes(lines, provider_notes, provider_review)
         _append_footer(lines, result)
         return "\n".join(lines)
@@ -131,8 +141,9 @@ def format_markdown(
             lines.append("")
 
     _append_provider_review(lines, provider_review)
-    _append_concerns(lines, concerns)
-    _append_observations(lines, observations)
+    if not _has_provider_review:
+        _append_concerns(lines, concerns)
+        _append_observations(lines, observations)
     _append_provider_notes(lines, provider_notes, provider_review)
     _append_footer(lines, result)
     return "\n".join(lines)
@@ -145,23 +156,23 @@ def _append_provider_review(
     """Append structured provider review items as the primary review section.
 
     Provider review items are the primary non-authoritative review surface
-    (ADR-044).  They are shown before concerns and observations because
-    they represent the provider's structured security review of the actual
-    changed code.
+    (ADR-044, ADR-045).  When present, this section is the main
+    explanatory/review layer — heuristic concerns and observations are
+    suppressed in favour of this provider-led content.
 
     Items are clearly marked as non-authoritative candidate material.
     """
     if not provider_review or not provider_review.has_items:
         return
 
-    # Show up to 5 items for conciseness.
-    shown = provider_review.items[:5]
+    # Show up to 8 items — the full validated set.
+    shown = provider_review.items[:8]
 
     lines.append("### 🤖 Provider Security Review")
     lines.append("")
     lines.append(
-        "*Structured review from the reasoning provider — these are "
-        "candidate observations based on the changed code.  They are "
+        "*Security review by the reasoning provider — these are "
+        "evidence-based observations on the changed code.  They are "
         "not proven findings and do not affect the decision or risk score.*"
     )
     lines.append("")

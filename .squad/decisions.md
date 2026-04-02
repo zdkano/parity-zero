@@ -2393,3 +2393,107 @@ class ProviderReviewItem:
 - **Further simplification of heuristic layers** — existing concern/observation generators may be simplified in future if they become redundant.
 - **Verifier/promotion model for candidate findings** — converting `candidate_finding` items to real `Finding` objects requires trust calibration.
 - **Cross-provider schema alignment** — current schema works for all providers but may need per-provider tuning later.
+
+---
+
+## ADR-045: Provider-First Review Output — Heuristic Suppression
+
+**Status:** Accepted
+**Phase:** Phase 1
+**Date:** 2026-04-01
+**Affects:** `reviewer/formatter.py`, markdown output hierarchy, developer experience
+
+### Context
+
+ADR-044 introduced structured provider review output (`ProviderReviewItem`)
+as a dedicated section in the markdown summary.  However, the review
+experience still presented multiple stacked review voices: deterministic
+findings, provider review items, heuristic concerns, per-file observations,
+and legacy provider notes — all rendered as separate sections.
+
+This created a crowded, competing-voices experience that undermined the
+intended product direction of making the provider the primary reviewer
+with parity-zero as the control/normalization/trust framework.
+
+### Decision
+
+When structured provider review output (`ProviderReview`) is present and
+has items, heuristic concern and observation sections are **suppressed**
+from the markdown output.  The provider review section becomes the
+**primary non-authoritative review surface**.
+
+The output hierarchy is now:
+
+1. **Deterministic findings** — authoritative, drive scoring (unchanged).
+2. **Provider security review** — primary non-authoritative review body.
+3. **Heuristic concerns/observations** — shown only as fallback when no
+   provider review is available.
+
+Heuristic concerns and observations are still generated internally
+(for tracing, debugging, and as input to other pipeline stages) but
+are no longer rendered in markdown when provider review is present.
+
+Legacy provider candidate notes remain suppressed when structured review
+is present (per ADR-044).
+
+### What changed
+
+- `reviewer/formatter.py` — `format_markdown()` now checks for provider
+  review presence and suppresses `_append_concerns()` and
+  `_append_observations()` when provider review has items.
+- Provider review section now shows up to 8 items (was 5).
+- Module docstring updated to reflect the provider-first hierarchy.
+- 31 new tests in `tests/test_provider_first_review.py`.
+- Documentation updated: trust-model.md, validation.md, quality-rubric.md,
+  architecture-overview.md, README.md.
+
+### What did NOT change
+
+- **ScanResult JSON contract** — unchanged.
+- **Scoring / decision logic** — unchanged. Decision and risk_score are
+  still derived entirely from deterministic findings.
+- **Deterministic checks** — unchanged. They still run and produce findings.
+- **Provider trust level** — unchanged. Provider output is still
+  non-authoritative.
+- **Internal concern/observation generation** — unchanged. They are still
+  generated as pipeline artifacts.
+- **Finding categories / taxonomy** — unchanged.
+
+### Trust boundary preservation
+
+This change does not alter trust boundaries:
+
+- Provider output does not create findings.
+- Provider output does not affect scoring.
+- Provider output does not influence the pass/warn/block decision.
+- ScanResult JSON contract is unchanged.
+- Deterministic findings remain the sole authoritative output.
+
+The change is presentation-only: it controls what appears in the markdown
+output, not what drives the review decision.
+
+### Rationale
+
+- The product intent is a **provider-first reviewer** with deterministic
+  logic as support/schema/grounding.
+- Multiple stacked review voices create noise and confusion.
+- When provider review is available, it should feel like **one main
+  reviewer** — not several competing commentary layers.
+- Heuristic concerns and observations remain available as fallback for
+  when no provider is configured or the provider gate skips.
+
+### Deferred concerns
+
+- **Provider-generated authoritative findings** — still deferred. Provider
+  output does not create `Finding` objects.
+- **Provider scoring authority** — still deferred. Provider items remain
+  non-scoring.
+- **Verifier/promotion model** — still deferred. Converting candidate
+  findings to real findings requires trust calibration.
+- **Further heuristic layer simplification** — the concern and observation
+  generators may be simplified or removed in future if they become
+  fully redundant with provider output.
+- **Partial heuristic surface** — a future iteration might show a small
+  number of unique heuristic items alongside provider review when they
+  add genuinely non-overlapping value. This was intentionally deferred
+  in favour of clean suppression.
