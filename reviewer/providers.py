@@ -109,6 +109,9 @@ class ReasoningRequest:
     deterministic_findings_summary: list[dict[str, str]] = field(default_factory=list)
     """Deterministic findings for context: each dict has 'category', 'title', 'file'."""
 
+    change_summary: list[str] = field(default_factory=list)
+    """Short deterministic summary bullets describing what changed (ADR-047)."""
+
     @property
     def file_count(self) -> int:
         """Number of changed files in the request."""

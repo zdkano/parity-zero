@@ -25,6 +25,7 @@ import urllib.error
 import urllib.request
 
 from schemas.findings import ScanResult
+from reviewer.change_summary import build_change_summary
 from reviewer.engine import AnalysisResult, analyse, derive_decision_and_risk
 from reviewer.formatter import format_markdown
 from reviewer.github_runtime import (
@@ -236,10 +237,13 @@ def run() -> None:
     print(result.model_dump_json(indent=2))
 
     # Generate and emit markdown summary.
+    # ADR-047: Build deterministic change summary from review bundle.
+    change_bullets = build_change_summary(bundle=analysis.bundle)
     markdown = format_markdown(
         result, concerns=analysis.concerns, observations=analysis.observations,
         provider_notes=analysis.provider_notes,
         provider_review=analysis.provider_review,
+        change_summary_bullets=change_bullets,
     )
     print("\n--- Markdown Summary ---\n")
     print(markdown)
@@ -332,10 +336,12 @@ def mock_run() -> dict:
         findings=analysis.findings,
     )
 
+    change_bullets = build_change_summary(bundle=analysis.bundle)
     markdown = format_markdown(
         result, concerns=analysis.concerns, observations=analysis.observations,
         provider_notes=analysis.provider_notes,
         provider_review=analysis.provider_review,
+        change_summary_bullets=change_bullets,
     )
     json_output = result.model_dump_json(indent=2)
 
