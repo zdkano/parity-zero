@@ -266,7 +266,7 @@ The evaluation layer encodes these practical quality expectations (see `tests/te
 - **Markdown structure remains correct** — correct sections present/absent based on content
 - **Output remains concise** — no-findings scenarios have bounded markdown length, concerns capped per path
 - **Change summary is factual** — the deterministic "What Changed" section describes what changed without judgment (ADR-047)
-- **Provider context is diff-aware** — provider requests include fuller file context for small relevant files and file-level annotations (ADR-047)
+- **Provider context includes fuller changed-file context** — provider requests include full-file inclusion for small relevant files and file-level annotations (ADR-047)
 
 These are **heuristic quality checks**, not scientific benchmarks. They will evolve as the reviewer improves.
 

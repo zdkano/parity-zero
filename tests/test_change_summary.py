@@ -3,7 +3,7 @@
 Covers:
 1. Change summary generation — factual, compact, path-aware
 2. Change summary rendering in markdown
-3. Provider context quality — diff-aware evidence, fuller context, bounded prompts
+3. Provider context quality — fuller changed-file context, bounded prompts
 4. Regression — ScanResult unchanged, scoring unchanged, provider non-authoritative
 """
 
@@ -340,7 +340,7 @@ class TestChangeSummaryInMarkdown:
 # ======================================================================
 
 class TestProviderContextDiffAware:
-    """Test that provider requests include diff-aware evidence."""
+    """Test that provider requests include fuller changed-file context."""
 
     def test_change_summary_in_reasoning_request(self):
         """ReasoningRequest includes change_summary bullets."""
